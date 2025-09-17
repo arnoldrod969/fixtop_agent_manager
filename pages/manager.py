@@ -285,6 +285,9 @@ if "✏️ Modifier" in available_tabs:
                     st.write(f"**Statut :** {status_text}")
                     st.write(f"**Créé le :** {manager_data.get('created_at', 'Non disponible')}")
             
+            # Checkbox en dehors du formulaire pour permettre l'interaction immédiate
+            change_password = st.checkbox("Changer le mot de passe", key=f"change_password_{selected_manager_id}")
+            
             with st.form(f"edit_manager_form_{selected_manager_id}"):
                 col1, col2 = st.columns(2)
                 with col1:
@@ -297,7 +300,6 @@ if "✏️ Modifier" in available_tabs:
                     current_role_index = 0  # Toujours 0 car il n'y a qu'une option
                     new_role = st.selectbox("Rôle *", role_options_edit, index=current_role_index)
                     new_status = st.selectbox("Statut", ["Actif", "Inactif"], index=0 if manager_data['is_active'] == 1 else 1)
-                    change_password = st.checkbox("Changer le mot de passe")
                     new_password = st.text_input("Nouveau mot de passe", type="password", placeholder="Nouveau mot de passe sécurisé" if change_password else "Cochez 'Changer le mot de passe' pour activer", disabled=not change_password)
                     confirm_new_password = st.text_input("Confirmer le nouveau mot de passe", type="password", placeholder="Confirmez le nouveau mot de passe" if change_password else "Cochez 'Changer le mot de passe' pour activer", disabled=not change_password)
                 

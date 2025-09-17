@@ -63,6 +63,38 @@ def load_ticket_stats():
     """Charge les statistiques des tickets"""
     return db_manager.get_problem_stats()
 
+@st.cache_data(ttl=60)
+def load_domains():
+    """Charge tous les domaines depuis la base de données"""
+    try:
+        with db_manager.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id, name FROM craft 
+                WHERE is_active = 1 
+                ORDER BY name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des domaines : {str(e)}")
+        return []
+
+@st.cache_data(ttl=60)
+def load_specialties_by_domain(domain_id):
+    """Charge les spécialités pour le domaine sélectionné"""
+    if not domain_id:
+        return []
+    try:
+        with db_manager.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id, name FROM speciality 
+                WHERE craft_id = ? AND is_active = 1 
+                ORDER BY name
+            """, (domain_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des spécialités : {str(e)}")
+        return []
+
 def clear_cache():
     """Vide le cache pour actualiser les données"""
     st.cache_data.clear()
@@ -169,41 +201,229 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
     with tab2:
         st.header("Ajouter un Nouveau Ticket")
         
-        with st.form("add_ticket_form"):
-            col1, col2 = st.columns(2)
+        # Charger les domaines pour le formulaire
+        domains = load_domains()
+        
+        # Initialisation des variables de session pour le formulaire
+        if 'form_customer_name' not in st.session_state:
+            st.session_state.form_customer_name = ""
+        if 'form_customer_phone' not in st.session_state:
+            st.session_state.form_customer_phone = ""
+        if 'form_problem_desc' not in st.session_state:
+            st.session_state.form_problem_desc = ""
+        if 'form_payment' not in st.session_state:
+            st.session_state.form_payment = "Non"
+        if 'form_amount' not in st.session_state:
+            st.session_state.form_amount = 0
+        if 'form_domain' not in st.session_state:
+            st.session_state.form_domain = "Sélectionner un domaine..."
+        if 'form_specialties' not in st.session_state:
+            st.session_state.form_specialties = []
+        if 'previous_domain_id' not in st.session_state:
+            st.session_state.previous_domain_id = None
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            customer_name = st.text_input(
+                "Nom du Client *", 
+                value=st.session_state.form_customer_name,
+                key="add_customer_name"
+            )
+            customer_phone = st.text_input(
+                "Téléphone du Client *", 
+                value=st.session_state.form_customer_phone,
+                key="add_customer_phone"
+            )
             
-            with col1:
-                customer_name = st.text_input("Nom du Client *", key="add_customer_name")
-                customer_phone = st.text_input("Téléphone du Client *", key="add_customer_phone")
+            # Champ paiement
+            payment = st.selectbox(
+                "Paiement *",
+                options=["Non", "Oui"],
+                index=0 if st.session_state.form_payment == "Non" else 1,
+                key="add_payment",
+                help="Le client a-t-il effectué un paiement ?"
+            )
             
-            with col2:
-                st.write("")  # Espacement
+            # Mise à jour immédiate du montant quand paiement = "Non"
+            if payment == "Non":
+                st.session_state.form_amount = 0
             
-            problem_desc = st.text_area("Description du Problème *", 
-                                       height=150, 
-                                       key="add_problem_desc",
-                                       help="Décrivez en détail le problème rencontré par le client")
-            
-            submitted = st.form_submit_button("➕ Créer le Ticket", type="primary")
-            
-            if submitted:
-                if not customer_name or not customer_phone or not problem_desc:
-                    st.error("⚠️ Tous les champs marqués d'un * sont obligatoires.")
-                else:
-                    # Création du ticket
-                    success, message = db_manager.create_problem(
-                        customer_name=customer_name.strip(),
-                        customer_phone=customer_phone.strip(),
-                        problem_desc=problem_desc.strip(),
-                        created_by=st.session_state.user_id
-                    )
+            # Champ montant (conditionnel) - s'affiche immédiatement
+            amount = None
+            if payment == "Oui":
+                amount = st.number_input(
+                    "Montant (₦) *",
+                    min_value=0,
+                    step=1,
+                    value=int(st.session_state.form_amount),
+                    key="add_amount",
+                    help="Montant du paiement en naira"
+                )
+            else:
+                # Afficher le montant à 0 quand paiement = "Non"
+                st.number_input(
+                    "Montant (₦)",
+                    value=0,
+                    disabled=True,
+                    help="Le montant est à 0 car aucun paiement n'a été effectué"
+                )
+        
+        with col2:
+            # Champ domaine (sélection simple)
+            if domains:
+                domain_options = {d['name']: d['id'] for d in domains}
+                domain_list = ["Sélectionner un domaine..."] + list(domain_options.keys())
+                
+                try:
+                    domain_index = domain_list.index(st.session_state.form_domain)
+                except ValueError:
+                    domain_index = 0
+                
+                selected_domain = st.selectbox(
+                    "Domaine *",
+                    options=domain_list,
+                    index=domain_index,
+                    key="add_domain",
+                    help="Sélectionnez le domaine concerné par le problème"
+                )
+                selected_domain_id = domain_options.get(selected_domain) if selected_domain != "Sélectionner un domaine..." else None
+                
+                # Détecter si le domaine a changé pour réinitialiser les spécialités
+                if 'previous_domain_id' not in st.session_state:
+                    st.session_state.previous_domain_id = None
+                
+                if st.session_state.previous_domain_id != selected_domain_id:
+                    st.session_state.form_specialties = []
+                    st.session_state.previous_domain_id = selected_domain_id
                     
-                    if success:
-                        st.success(f"✅ {message}")
-                        clear_cache()
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
+            else:
+                st.warning("Aucun domaine disponible")
+                selected_domain = None
+                selected_domain_id = None
+            
+            # Champ spécialités (multi-sélection dépendant du domaine sélectionné)
+            selected_specialties = []
+            selected_specialty_ids = []
+            if selected_domain_id:
+                specialties = load_specialties_by_domain(selected_domain_id)
+                if specialties:
+                    specialty_options = {s['name']: s['id'] for s in specialties}
+                    
+                    # Filtrer les spécialités par défaut pour ne garder que celles qui existent pour ce domaine
+                    valid_default_specialties = [spec for spec in st.session_state.form_specialties 
+                                                if spec in specialty_options.keys()]
+                    
+                    selected_specialties = st.multiselect(
+                        "Spécialités",
+                        options=list(specialty_options.keys()),
+                        default=valid_default_specialties,
+                        key="add_specialties",
+                        help="Sélectionnez les spécialités concernées"
+                    )
+                    selected_specialty_ids = [specialty_options[name] for name in selected_specialties]
+                    
+                    # Mise à jour immédiate de la session pour éviter le double-clic
+                    st.session_state.form_specialties = selected_specialties
+                else:
+                    st.info("Aucune spécialité disponible pour ce domaine")
+            else:
+                st.info("Sélectionnez d'abord un domaine pour voir les spécialités")
+                
+            # Mise à jour immédiate du domaine sélectionné
+            if selected_domain:
+                st.session_state.form_domain = selected_domain
+        
+        problem_desc = st.text_area(
+            "Description du Problème *", 
+            height=150,
+            value=st.session_state.form_problem_desc,
+            key="add_problem_desc",
+            help="Décrivez en détail le problème rencontré par le client"
+        )
+        
+        # Boutons d'action
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+        
+        with col_btn1:
+            if st.button("➕ Créer le Ticket", type="primary", key="create_ticket_btn"):
+                # Validation des champs obligatoires
+                errors = []
+                if not customer_name:
+                    errors.append("Nom du client")
+                if not customer_phone:
+                    errors.append("Téléphone du client")
+                if not problem_desc:
+                    errors.append("Description du problème")
+                if not selected_domain_id:
+                    errors.append("Un domaine")
+                if payment == "Oui" and (amount is None or amount <= 0):
+                    errors.append("Montant du paiement (doit être supérieur à 0)")
+                
+                if errors:
+                    st.error(f"⚠️ Les champs suivants sont obligatoires : {', '.join(errors)}")
+                else:
+                    # Création du ticket avec les nouveaux champs
+                    try:
+                        with db_manager.get_connection() as conn:
+                            # Insérer le ticket principal
+                            cursor = conn.execute("""
+                                 INSERT INTO problems (customer_name, customer_phone, problem_desc, 
+                                                     is_paid, amount, craft_ids, speciality_ids, created_by , updated_by)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ? , ?)
+                             """, (
+                                 customer_name.strip(),
+                                 customer_phone.strip(),
+                                 problem_desc.strip(),
+                                 1 if payment == "Oui" else 0,
+                                 amount if payment == "Oui" else 0,
+                                 str(selected_domain_id) if selected_domain_id else None,
+                                 ','.join(map(str, selected_specialty_ids)) if selected_specialty_ids else None,
+                                 st.session_state.user_id,
+                                 st.session_state.user_id
+                             ))
+                            
+                            problem_id = cursor.lastrowid
+                            
+                            conn.commit()
+                            st.success(f"✅ Ticket créé avec succès (ID: {problem_id})")
+                            
+                            # Réinitialiser le formulaire
+                            st.session_state.form_customer_name = ""
+                            st.session_state.form_customer_phone = ""
+                            st.session_state.form_problem_desc = ""
+                            st.session_state.form_payment = "Non"
+                            st.session_state.form_amount = 0
+                            st.session_state.form_domain = "Sélectionner un domaine..."
+                            st.session_state.form_specialties = []
+                            st.session_state.previous_domain_id = None
+                            
+                            clear_cache()
+                            st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de la création : {str(e)}")
+        
+        with col_btn2:
+            if st.button("🔄 Réinitialiser", key="reset_form_btn"):
+                # Réinitialiser tous les champs du formulaire
+                st.session_state.form_customer_name = ""
+                st.session_state.form_customer_phone = ""
+                st.session_state.form_problem_desc = ""
+                st.session_state.form_payment = "Non"
+                st.session_state.form_amount = 0
+                st.session_state.form_domain = "Sélectionner un domaine..."
+                st.session_state.form_specialties = []
+                st.session_state.previous_domain_id = None
+                st.rerun()
+        
+        # Mise à jour des variables de session (seulement pour les champs non gérés immédiatement)
+        st.session_state.form_customer_name = customer_name
+        st.session_state.form_customer_phone = customer_phone
+        st.session_state.form_problem_desc = problem_desc
+        st.session_state.form_payment = payment
+        if amount is not None:
+            st.session_state.form_amount = amount
 
 # ==================== ONGLET MODIFIER ====================
 if tab3 is not None:  # Seulement si l'utilisateur a les permissions
