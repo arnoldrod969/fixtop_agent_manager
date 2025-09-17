@@ -1,18 +1,30 @@
-# Utiliser une image Python légère et stable
-FROM python:3.11-slim
+FROM python:3.10.6
 
-# Définir le répertoire de travail
 WORKDIR /app
 
-# Copier le fichier requirements.txt et installer les dépendances (pour optimiser les layers Docker)
+# Installer les dépendances système nécessaires
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    libblas-dev \
+    liblapack-dev \
+    libpng-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Mettre à jour pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# Installer les dépendances Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier le code source de l'application
+# Copier le code
 COPY . .
 
-# Exposer le port par défaut de Streamlit
-EXPOSE 8501
+# Exposer le port
+EXPOSE 7000
 
-# Commande pour lancer l'application Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Lancer Streamlit
+CMD ["streamlit", "run", "app.py", "--server.port=7000", "--server.address=0.0.0.0"]
