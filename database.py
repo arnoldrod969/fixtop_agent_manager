@@ -149,32 +149,32 @@ class DatabaseManager:
         try:
             # Vérifier si l'email existe déjà
             if self.get_user_by_email(email):
-                return False, "Un utilisateur avec cet email existe déjà", None
+                return False, "A user with this email already exists", None
             
             # Vérifier que le rôle existe
             if not self.get_role_by_id(role_id):
-                return False, "Le rôle spécifié n'existe pas", None
+                return False, "The specified role does not exist", None
             
             # Hash du mot de passe
             hashed_password = self.hash_password(password)
             
             with self.get_connection() as conn:
                 cursor = conn.execute("""
-                    INSERT INTO user (nin, name, email, password, role_id, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (nin, name, email, hashed_password, role_id, created_by))
+                    INSERT INTO user (nin, name, email, password, role_id, created_by, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ? , ?)
+                """, (nin, name, email, hashed_password, role_id, created_by , created_by))
                 
                 user_id = cursor.lastrowid
                 conn.commit()
                 
-                return True, f"Utilisateur '{name}' créé avec succès", user_id
+                return True, f"User '{name}' successfully created", user_id
                 
         except sqlite3.IntegrityError as e:
             if "email" in str(e).lower():
-                return False, "Un utilisateur avec cet email existe déjà", None
-            return False, f"Erreur d'intégrité : {str(e)}", None
+                return False, "A user with this email already exists", None
+            return False, f"Integrity error: {str(e)}", None
         except Exception as e:
-            return False, f"Erreur lors de la création : {str(e)}", None
+            return False, f"Error creating user: {str(e)}", None
     
     def update_user(self, user_id: int, name: str = None, email: str = None, 
                    role_id: int = None, nin: str = None, is_active: int = None,
@@ -212,7 +212,7 @@ class DatabaseManager:
             params.append(user_id)
             
             if not updates:
-                return False, "Aucune modification spécifiée"
+                return False, "No changes specified"
             
             query = f"UPDATE user SET {', '.join(updates)} WHERE id = ?"
             
@@ -220,17 +220,17 @@ class DatabaseManager:
                 cursor = conn.execute(query, params)
                 
                 if cursor.rowcount == 0:
-                    return False, "Utilisateur non trouvé"
+                    return False, "User not found"
                 
                 conn.commit()
-                return True, "Utilisateur mis à jour avec succès"
+                return True, "User updated successfully"
                 
         except sqlite3.IntegrityError as e:
             if "email" in str(e).lower():
-                return False, "Un utilisateur avec cet email existe déjà"
-            return False, f"Erreur d'intégrité : {str(e)}"
+                return False, "A user with this email already exists"
+            return False, f"Integrity error: {str(e)}"
         except Exception as e:
-            return False, f"Erreur lors de la mise à jour : {str(e)}"
+            return False, f"Error updating user: {str(e)}"
     
     def delete_user(self, user_id: int) -> Tuple[bool, str]:
         """
@@ -249,15 +249,15 @@ class DatabaseManager:
                     return False, "Utilisateur non trouvé"
                 
                 conn.commit()
-                return True, "Utilisateur désactivé avec succès"
+                return True, "User disabled successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la suppression : {str(e)}"
+            return False, f"Error disabling user: {str(e)}"
     
     def authenticate_user(self, email: str, password: str) -> Optional[Dict]:
         """
-        Authentifie un utilisateur
-        Retourne les informations utilisateur si succès, None sinon
+        Authenticates a user
+        Returns user data if successful, None otherwise
         """
         user = self.get_user_by_email(email)
         if user and user['is_active'] == 1:
@@ -314,10 +314,10 @@ class DatabaseManager:
                 """, (customer_name, customer_phone, problem_desc, created_by))
                 
                 conn.commit()
-                return True, f"Ticket créé avec succès (ID: {cursor.lastrowid})"
+                return True, f"Problem created successfully (ID: {cursor.lastrowid})"
                 
         except Exception as e:
-            return False, f"Erreur lors de la création : {str(e)}"
+            return False, f"Error creating problem: {str(e)}"
     
     def update_problem(self, problem_id: int, customer_name: str = None, 
                       customer_phone: str = None, problem_desc: str = None, 
@@ -348,7 +348,7 @@ class DatabaseManager:
             params.append(problem_id)
             
             if not updates:
-                return False, "Aucune modification spécifiée"
+                return False, "No changes specified"
             
             query = f"UPDATE problems SET {', '.join(updates)} WHERE id = ?"
             
@@ -356,13 +356,13 @@ class DatabaseManager:
                 cursor = conn.execute(query, params)
                 
                 if cursor.rowcount == 0:
-                    return False, "Ticket non trouvé"
+                    return False, "Problem not found"
                 
                 conn.commit()
-                return True, "Ticket mis à jour avec succès"
+                return True, "Problem updated successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la mise à jour : {str(e)}"
+            return False, f"Error updating problem: {str(e)}"
     
     def delete_problem(self, problem_id: int) -> Tuple[bool, str]:
         """
@@ -378,13 +378,13 @@ class DatabaseManager:
                 """, (problem_id,))
                 
                 if cursor.rowcount == 0:
-                    return False, "Ticket non trouvé"
+                    return False, "Problem not found"
                 
                 conn.commit()
-                return True, "Ticket supprimé avec succès"
+                return True, "Problem deleted successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la suppression : {str(e)}"
+            return False, f"Error deleting problem: {str(e)}"
     
     def get_problem_stats(self) -> Dict:
         """Récupère les statistiques des tickets/problèmes"""

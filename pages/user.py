@@ -233,12 +233,12 @@ if "➕ Add" in available_tabs:
                         else:
                             created_by = st.session_state.get('user_id', 1)  # Connected user ID
                             # Corrected call to add_user (param order: nin, name, email, password, role_name, created_by)
-                            success, message, _ = db_manager.add_user(
+                            success, message, _ = db_manager.create_user(
                                 nin=nin.strip() if nin.strip() else None,
                                 name=name.strip(),
                                 email=email.strip().lower(),
                                 password=password,
-                                role_name=selected_role,
+                                role_id=role_id,
                                 created_by=created_by
                             )
                             if success:
