@@ -5,20 +5,20 @@ from database import db_manager
 from permissions import PermissionManager
 
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
-    st.switch_page("app.py")  # Redirige vers l'accueil/login si pas connecté
+    st.switch_page("app.py")  # Redirect to home/login if not connected
 
-# Vérification des permissions d'accès à la page
+# Check page access permissions
 if not PermissionManager.check_page_access('ticket_page'):
-    PermissionManager.show_access_denied("Vous n'avez pas accès à la gestion des tickets.")
+    PermissionManager.show_access_denied("You do not have access to ticket management.")
 
-# Configuration de la page
+# Page configuration
 st.set_page_config(
-    page_title="Gestion des Tickets",
+    page_title="Ticket Management",
     page_icon="🎫",
     layout="wide"
 )
 
-# CSS personnalisé
+# Custom CSS
 st.markdown("""
 <style>
     .metric-card {
@@ -48,24 +48,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Titre principal
-st.title("🎫 Gestion des Tickets")
+# Main title
+st.title("🎫 Ticket Management")
 st.markdown("---")
 
-# Fonctions utilitaires
+# Utility functions
 @st.cache_data(ttl=60)
 def load_tickets():
-    """Charge tous les tickets depuis la base de données"""
+    """Loads all tickets from the database"""
     return db_manager.get_all_problems()
 
 @st.cache_data(ttl=60)
 def load_ticket_stats():
-    """Charge les statistiques des tickets"""
+    """Loads ticket statistics"""
     return db_manager.get_problem_stats()
 
 @st.cache_data(ttl=60)
 def load_domains():
-    """Charge tous les domaines depuis la base de données"""
+    """Loads all domains from the database"""
     try:
         with db_manager.get_connection() as conn:
             cursor = conn.execute("""
@@ -75,12 +75,12 @@ def load_domains():
             """)
             return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
-        st.error(f"Erreur lors du chargement des domaines : {str(e)}")
+        st.error(f"Error loading domains: {str(e)}")
         return []
 
 @st.cache_data(ttl=60)
 def load_specialties_by_domain(domain_id):
-    """Charge les spécialités pour le domaine sélectionné"""
+    """Loads specialties for the selected domain"""
     if not domain_id:
         return []
     try:
@@ -92,58 +92,58 @@ def load_specialties_by_domain(domain_id):
             """, (domain_id,))
             return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
-        st.error(f"Erreur lors du chargement des spécialités : {str(e)}")
+        st.error(f"Error loading specialties: {str(e)}")
         return []
 
 def clear_cache():
-    """Vide le cache pour actualiser les données"""
+    """Clears cache to refresh data"""
     st.cache_data.clear()
 
-# Création des onglets basés sur les permissions
+# Create tabs based on permissions
 available_tabs = PermissionManager.get_available_tabs('ticket_page')
 
-# Création dynamique des onglets selon les permissions
+# Dynamic tab creation according to permissions
 tabs = st.tabs(available_tabs)
 
-# Initialisation des variables d'onglets
+# Tab variable initialization
 tab1 = tab2 = tab3 = tab4 = tab5 = None
 
-# Attribution des onglets selon leur contenu
+# Tab assignment according to their content
 for i, tab_name in enumerate(available_tabs):
-    if "Liste" in tab_name:
+    if "List" in tab_name:
         tab1 = tabs[i]
-    elif "Ajouter" in tab_name:
+    elif "Add" in tab_name:
         tab2 = tabs[i]
-    elif "Modifier" in tab_name:
+    elif "Edit" in tab_name:
         tab3 = tabs[i]
-    elif "Supprimer" in tab_name:
+    elif "Delete" in tab_name:
         tab4 = tabs[i]
-    elif "Statistiques" in tab_name:
+    elif "Statistics" in tab_name:
         tab5 = tabs[i]
 
-# ==================== ONGLET LISTE ====================
+# ==================== LIST TAB ====================
 with tab1:
-    st.header("Liste des Tickets")
+    st.header("Ticket List")
     
-    # Filtres
+    # Filters
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        search_customer = st.text_input("🔍 Rechercher par nom client", key="search_customer")
+        search_customer = st.text_input("🔍 Search by customer name", key="search_customer")
     
     with col2:
-        search_phone = st.text_input("📱 Rechercher par téléphone", key="search_phone")
+        search_phone = st.text_input("📱 Search by phone", key="search_phone")
     
     with col3:
-        if st.button("🔄 Actualiser", key="refresh_list"):
+        if st.button("🔄 Refresh", key="refresh_list"):
             clear_cache()
             st.rerun()
     
-    # Chargement des données
+    # Data loading
     tickets = load_tickets()
     
     if tickets:
-        # Filtrage des données
+        # Data filtering
         filtered_tickets = tickets
         
         if search_customer:
@@ -154,57 +154,57 @@ with tab1:
             filtered_tickets = [t for t in filtered_tickets 
                               if search_phone in t['customer_phone']]
         
-        # Affichage des résultats
-        st.info(f"📊 {len(filtered_tickets)} ticket(s) trouvé(s)")
+        # Results display
+        st.info(f"📊 {len(filtered_tickets)} ticket(s) found")
         
-        # Tableau des tickets
+        # Ticket table
         if filtered_tickets:
             df = pd.DataFrame(filtered_tickets)
             
-            # Sélection des colonnes à afficher
+            # Select columns to display
             display_columns = ['id', 'customer_name', 'customer_phone', 'problem_desc', 
                              'created_by_name', 'created_at']
             
-            # Renommage des colonnes pour l'affichage
+            # Column renaming for display
             column_names = {
                 'id': 'ID',
-                'customer_name': 'Nom Client',
-                'customer_phone': 'Téléphone',
-                'problem_desc': 'Description du Problème',
-                'created_by_name': 'Créé par',
-                'created_at': 'Date de Création'
+                'customer_name': 'Customer Name',
+                'customer_phone': 'Phone',
+                'problem_desc': 'Problem Description',
+                'created_by_name': 'Created by',
+                'created_at': 'Creation Date'
             }
             
             df_display = df[display_columns].rename(columns=column_names)
             
-            # Configuration de l'affichage du dataframe
+            # Dataframe display configuration
             st.dataframe(
                 df_display,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Description du Problème": st.column_config.TextColumn(
+                    "Problem Description": st.column_config.TextColumn(
                         width="large"
                     ),
-                    "Date de Création": st.column_config.DatetimeColumn(
+                    "Creation Date": st.column_config.DatetimeColumn(
                         format="DD/MM/YYYY HH:mm"
                     )
                 }
             )
         else:
-            st.warning("Aucun ticket ne correspond aux critères de recherche.")
+            st.warning("No tickets match the search criteria.")
     else:
-        st.info("Aucun ticket trouvé dans la base de données.")
+        st.info("No tickets found in the database.")
 
-# ==================== ONGLET AJOUTER ====================
-if tab2 is not None:  # Seulement si l'utilisateur a les permissions
+# ==================== ADD TAB ====================
+if tab2 is not None:  # Only if user has permissions
     with tab2:
-        st.header("Ajouter un Nouveau Ticket")
+        st.header("Add a New Ticket")
         
-        # Charger les domaines pour le formulaire
+        # Load domains for the form
         domains = load_domains()
         
-        # Initialisation des variables de session pour le formulaire
+        # Initialize session variables for the form
         if 'form_customer_name' not in st.session_state:
             st.session_state.form_customer_name = ""
         if 'form_customer_phone' not in st.session_state:
@@ -212,11 +212,11 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
         if 'form_problem_desc' not in st.session_state:
             st.session_state.form_problem_desc = ""
         if 'form_payment' not in st.session_state:
-            st.session_state.form_payment = "Non"
+            st.session_state.form_payment = "No"
         if 'form_amount' not in st.session_state:
             st.session_state.form_amount = 0
         if 'form_domain' not in st.session_state:
-            st.session_state.form_domain = "Sélectionner un domaine..."
+            st.session_state.form_domain = "Select a domain..."
         if 'form_specialties' not in st.session_state:
             st.session_state.form_specialties = []
         if 'previous_domain_id' not in st.session_state:
@@ -226,54 +226,54 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
         
         with col1:
             customer_name = st.text_input(
-                "Nom du Client *", 
+                "Customer Name *", 
                 value=st.session_state.form_customer_name,
                 key="add_customer_name"
             )
             customer_phone = st.text_input(
-                "Téléphone du Client *", 
+                "Customer Phone *", 
                 value=st.session_state.form_customer_phone,
                 key="add_customer_phone"
             )
             
-            # Champ paiement
+            # Payment field
             payment = st.selectbox(
-                "Paiement *",
-                options=["Non", "Oui"],
-                index=0 if st.session_state.form_payment == "Non" else 1,
+                "Payment *",
+                options=["No", "Yes"],
+                index=0 if st.session_state.form_payment == "No" else 1,
                 key="add_payment",
-                help="Le client a-t-il effectué un paiement ?"
+                help="Has the customer made a payment?"
             )
             
-            # Mise à jour immédiate du montant quand paiement = "Non"
-            if payment == "Non":
+            # Immediate amount update when payment = "No"
+            if payment == "No":
                 st.session_state.form_amount = 0
             
-            # Champ montant (conditionnel) - s'affiche immédiatement
+            # Amount field (conditional) - displays immediately
             amount = None
-            if payment == "Oui":
+            if payment == "Yes":
                 amount = st.number_input(
-                    "Montant (₦) *",
+                    "Amount (₦) *",
                     min_value=0,
                     step=1,
                     value=int(st.session_state.form_amount),
                     key="add_amount",
-                    help="Montant du paiement en naira"
+                    help="Payment amount in naira"
                 )
             else:
-                # Afficher le montant à 0 quand paiement = "Non"
+                # Display amount at 0 when payment = "No"
                 st.number_input(
-                    "Montant (₦)",
+                    "Amount (₦)",
                     value=0,
                     disabled=True,
-                    help="Le montant est à 0 car aucun paiement n'a été effectué"
+                    help="Amount is 0 because no payment was made"
                 )
         
         with col2:
-            # Champ domaine (sélection simple)
+            # Domain field (simple selection)
             if domains:
                 domain_options = {d['name']: d['id'] for d in domains}
-                domain_list = ["Sélectionner un domaine..."] + list(domain_options.keys())
+                domain_list = ["Select a domain..."] + list(domain_options.keys())
                 
                 try:
                     domain_index = domain_list.index(st.session_state.form_domain)
@@ -281,15 +281,15 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                     domain_index = 0
                 
                 selected_domain = st.selectbox(
-                    "Domaine *",
+                    "Domain *",
                     options=domain_list,
                     index=domain_index,
                     key="add_domain",
-                    help="Sélectionnez le domaine concerné par le problème"
+                    help="Select the domain related to the problem"
                 )
-                selected_domain_id = domain_options.get(selected_domain) if selected_domain != "Sélectionner un domaine..." else None
+                selected_domain_id = domain_options.get(selected_domain) if selected_domain != "Select a domain..." else None
                 
-                # Détecter si le domaine a changé pour réinitialiser les spécialités
+                # Detect if domain changed to reset specialties
                 if 'previous_domain_id' not in st.session_state:
                     st.session_state.previous_domain_id = None
                 
@@ -298,11 +298,11 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                     st.session_state.previous_domain_id = selected_domain_id
                     
             else:
-                st.warning("Aucun domaine disponible")
+                st.warning("No domains available")
                 selected_domain = None
                 selected_domain_id = None
             
-            # Champ spécialités (multi-sélection dépendant du domaine sélectionné)
+            # Specialties field (multi-selection dependent on selected domain)
             selected_specialties = []
             selected_specialty_ids = []
             if selected_domain_id:
@@ -310,63 +310,63 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                 if specialties:
                     specialty_options = {s['name']: s['id'] for s in specialties}
                     
-                    # Filtrer les spécialités par défaut pour ne garder que celles qui existent pour ce domaine
+                    # Filter default specialties to keep only those that exist for this domain
                     valid_default_specialties = [spec for spec in st.session_state.form_specialties 
                                                 if spec in specialty_options.keys()]
                     
                     selected_specialties = st.multiselect(
-                        "Spécialités",
+                        "Specialties",
                         options=list(specialty_options.keys()),
                         default=valid_default_specialties,
                         key="add_specialties",
-                        help="Sélectionnez les spécialités concernées"
+                        help="Select the relevant specialties"
                     )
                     selected_specialty_ids = [specialty_options[name] for name in selected_specialties]
                     
-                    # Mise à jour immédiate de la session pour éviter le double-clic
+                    # Immediate session update to avoid double-click
                     st.session_state.form_specialties = selected_specialties
                 else:
-                    st.info("Aucune spécialité disponible pour ce domaine")
+                    st.info("No specialties available for this domain")
             else:
-                st.info("Sélectionnez d'abord un domaine pour voir les spécialités")
+                st.info("First select a domain to see specialties")
                 
-            # Mise à jour immédiate du domaine sélectionné
+            # Immediate update of selected domain
             if selected_domain:
                 st.session_state.form_domain = selected_domain
         
         problem_desc = st.text_area(
-            "Description du Problème *", 
+            "Problem Description *", 
             height=150,
             value=st.session_state.form_problem_desc,
             key="add_problem_desc",
-            help="Décrivez en détail le problème rencontré par le client"
+            help="Describe in detail the problem encountered by the customer"
         )
         
-        # Boutons d'action
+        # Action buttons
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
         
         with col_btn1:
-            if st.button("➕ Créer le Ticket", type="primary", key="create_ticket_btn"):
-                # Validation des champs obligatoires
+            if st.button("➕ Create Ticket", type="primary", key="create_ticket_btn"):
+                # Validate required fields
                 errors = []
                 if not customer_name:
-                    errors.append("Nom du client")
+                    errors.append("Customer name")
                 if not customer_phone:
-                    errors.append("Téléphone du client")
+                    errors.append("Customer phone")
                 if not problem_desc:
-                    errors.append("Description du problème")
+                    errors.append("Problem description")
                 if not selected_domain_id:
-                    errors.append("Un domaine")
-                if payment == "Oui" and (amount is None or amount <= 0):
-                    errors.append("Montant du paiement (doit être supérieur à 0)")
+                    errors.append("A domain")
+                if payment == "Yes" and (amount is None or amount <= 0):
+                    errors.append("Payment amount (must be greater than 0)")
                 
                 if errors:
-                    st.error(f"⚠️ Les champs suivants sont obligatoires : {', '.join(errors)}")
+                    st.error(f"⚠️ The following fields are required: {', '.join(errors)}")
                 else:
-                    # Création du ticket avec les nouveaux champs
+                    # Create ticket with new fields
                     try:
                         with db_manager.get_connection() as conn:
-                            # Insérer le ticket principal
+                            # Insert main ticket
                             cursor = conn.execute("""
                                  INSERT INTO problems (customer_name, customer_phone, problem_desc, 
                                                      is_paid, amount, craft_ids, speciality_ids, created_by , updated_by)
@@ -375,8 +375,8 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                                  customer_name.strip(),
                                  customer_phone.strip(),
                                  problem_desc.strip(),
-                                 1 if payment == "Oui" else 0,
-                                 amount if payment == "Oui" else 0,
+                                 1 if payment == "Yes" else 0,
+                                 amount if payment == "Yes" else 0,
                                  str(selected_domain_id) if selected_domain_id else None,
                                  ','.join(map(str, selected_specialty_ids)) if selected_specialty_ids else None,
                                  st.session_state.user_id,
@@ -386,15 +386,15 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                             problem_id = cursor.lastrowid
                             
                             conn.commit()
-                            st.success(f"✅ Ticket créé avec succès (ID: {problem_id})")
+                            st.success(f"✅ Ticket created successfully (ID: {problem_id})")
                             
-                            # Réinitialiser le formulaire
+                            # Reset form
                             st.session_state.form_customer_name = ""
                             st.session_state.form_customer_phone = ""
                             st.session_state.form_problem_desc = ""
-                            st.session_state.form_payment = "Non"
+                            st.session_state.form_payment = "No"
                             st.session_state.form_amount = 0
-                            st.session_state.form_domain = "Sélectionner un domaine..."
+                            st.session_state.form_domain = "Select a domain..."
                             st.session_state.form_specialties = []
                             st.session_state.previous_domain_id = None
                             
@@ -402,22 +402,22 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
                             st.rerun()
                             
                     except Exception as e:
-                        st.error(f"❌ Erreur lors de la création : {str(e)}")
+                        st.error(f"❌ Error during creation: {str(e)}")
         
         with col_btn2:
-            if st.button("🔄 Réinitialiser", key="reset_form_btn"):
-                # Réinitialiser tous les champs du formulaire
+            if st.button("🔄 Reset", key="reset_form_btn"):
+                # Reset all form fields
                 st.session_state.form_customer_name = ""
                 st.session_state.form_customer_phone = ""
                 st.session_state.form_problem_desc = ""
-                st.session_state.form_payment = "Non"
+                st.session_state.form_payment = "No"
                 st.session_state.form_amount = 0
-                st.session_state.form_domain = "Sélectionner un domaine..."
+                st.session_state.form_domain = "Select a domain..."
                 st.session_state.form_specialties = []
                 st.session_state.previous_domain_id = None
                 st.rerun()
         
-        # Mise à jour des variables de session (seulement pour les champs non gérés immédiatement)
+        # Update session variables (only for fields not managed immediately)
         st.session_state.form_customer_name = customer_name
         st.session_state.form_customer_phone = customer_phone
         st.session_state.form_problem_desc = problem_desc
@@ -425,20 +425,20 @@ if tab2 is not None:  # Seulement si l'utilisateur a les permissions
         if amount is not None:
             st.session_state.form_amount = amount
 
-# ==================== ONGLET MODIFIER ====================
-if tab3 is not None:  # Seulement si l'utilisateur a les permissions
+# ==================== EDIT TAB ====================
+if tab3 is not None:  # Only if user has permissions
     with tab3:
-        st.header("Modifier un Ticket")
+        st.header("Edit a Ticket")
         
         tickets = load_tickets()
         
         if tickets:
-            # Sélection du ticket à modifier
+            # Select ticket to edit
             ticket_options = {f"#{t['id']} - {t['customer_name']} ({t['customer_phone']})": t['id'] 
                              for t in tickets}
             
             selected_ticket_key = st.selectbox(
-                "Sélectionner un ticket à modifier",
+                "Select a ticket to edit",
                 options=list(ticket_options.keys()),
                 key="modify_ticket_select"
             )
@@ -453,34 +453,34 @@ if tab3 is not None:  # Seulement si l'utilisateur a les permissions
                         
                         with col1:
                             new_customer_name = st.text_input(
-                                "Nom du Client", 
+                                "Customer Name", 
                                 value=ticket['customer_name'],
                                 key="modify_customer_name"
                             )
                             new_customer_phone = st.text_input(
-                                "Téléphone du Client", 
+                                "Customer Phone", 
                                 value=ticket['customer_phone'],
                                 key="modify_customer_phone"
                             )
                         
                         with col2:
-                            st.info(f"**Créé par:** {ticket['created_by_name'] or 'Inconnu'}")
-                            st.info(f"**Date de création:** {ticket['created_at']}")
+                            st.info(f"**Created by:** {ticket['created_by_name'] or 'Unknown'}")
+                            st.info(f"**Creation date:** {ticket['created_at']}")
                         
                         new_problem_desc = st.text_area(
-                            "Description du Problème", 
+                            "Problem Description", 
                             value=ticket['problem_desc'],
                             height=150,
                             key="modify_problem_desc"
                         )
                         
-                        submitted = st.form_submit_button("💾 Mettre à Jour", type="primary")
+                        submitted = st.form_submit_button("💾 Update", type="primary")
                         
                         if submitted:
                             if not new_customer_name or not new_customer_phone or not new_problem_desc:
-                                st.error("⚠️ Tous les champs sont obligatoires.")
+                                st.error("⚠️ All fields are required.")
                             else:
-                                # Mise à jour du ticket
+                                # Update ticket
                                 success, message = db_manager.update_problem(
                                     problem_id=ticket_id,
                                     customer_name=new_customer_name.strip(),
@@ -496,23 +496,23 @@ if tab3 is not None:  # Seulement si l'utilisateur a les permissions
                                 else:
                                     st.error(f"❌ {message}")
         else:
-            st.info("Aucun ticket disponible pour modification.")
+            st.info("No tickets available for editing.")
 
-# ==================== ONGLET SUPPRIMER ====================
-if tab4 is not None:  # Seulement si l'utilisateur a les permissions
+# ==================== DELETE TAB ====================
+if tab4 is not None:  # Only if user has permissions
     with tab4:
-        st.header("Supprimer un Ticket")
-        st.warning("⚠️ Attention: Cette action marquera le ticket comme inactif (suppression logique).")
+        st.header("Delete a Ticket")
+        st.warning("⚠️ Warning: This action will mark the ticket as inactive (logical deletion).")
         
         tickets = load_tickets()
         
         if tickets:
-            # Sélection du ticket à supprimer
+            # Ticket selection for deletion
             ticket_options = {f"#{t['id']} - {t['customer_name']} ({t['customer_phone']})": t['id'] 
                              for t in tickets}
             
             selected_ticket_key = st.selectbox(
-                "Sélectionner un ticket à supprimer",
+                "Select a ticket to delete",
                 options=list(ticket_options.keys()),
                 key="delete_ticket_select"
             )
@@ -522,26 +522,26 @@ if tab4 is not None:  # Seulement si l'utilisateur a les permissions
                 ticket = db_manager.get_problem_by_id(ticket_id)
                 
                 if ticket:
-                    # Affichage des détails du ticket
-                    st.markdown("### Détails du ticket à supprimer:")
+                    # Display ticket details
+                    st.markdown("### Details of the ticket to delete:")
                     
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write(f"**ID:** {ticket['id']}")
-                        st.write(f"**Client:** {ticket['customer_name']}")
-                        st.write(f"**Téléphone:** {ticket['customer_phone']}")
+                        st.write(f"**Customer:** {ticket['customer_name']}")
+                        st.write(f"**Phone:** {ticket['customer_phone']}")
                     
                     with col2:
-                        st.write(f"**Créé par:** {ticket['created_by_name'] or 'Inconnu'}")
+                        st.write(f"**Created by:** {ticket['created_by_name'] or 'Unknown'}")
                         st.write(f"**Date:** {ticket['created_at']}")
                     
-                    st.write(f"**Problème:** {ticket['problem_desc']}")
+                    st.write(f"**Problem:** {ticket['problem_desc']}")
                     
-                    # Confirmation de suppression
+                    # Deletion confirmation
                     col1, col2, col3 = st.columns([1, 1, 2])
                     
                     with col1:
-                        if st.button("🗑️ Confirmer la Suppression", type="primary", key="confirm_delete"):
+                        if st.button("🗑️ Confirm Deletion", type="primary", key="confirm_delete"):
                             success, message = db_manager.delete_problem(ticket_id)
                             
                             if success:
@@ -552,20 +552,20 @@ if tab4 is not None:  # Seulement si l'utilisateur a les permissions
                                 st.error(f"❌ {message}")
                     
                     with col2:
-                        if st.button("❌ Annuler", key="cancel_delete"):
+                        if st.button("❌ Cancel", key="cancel_delete"):
                             st.rerun()
         else:
-            st.info("Aucun ticket disponible pour suppression.")
+            st.info("No tickets available for deletion.")
 
-# ==================== ONGLET STATISTIQUES ====================
+# ==================== STATISTICS TAB ====================
 if tab5 is not None:
     with tab5:
-        st.header("Statistiques des Tickets")
+        st.header("Ticket Statistics")
         
-        # Chargement des statistiques
+        # Load statistics
         stats = load_ticket_stats()
         
-        # Métriques principales
+        # Main metrics
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -579,7 +579,7 @@ if tab5 is not None:
         with col2:
             st.markdown(f"""
             <div class="metric-card">
-                <h3>📅 Aujourd'hui</h3>
+                <h3>📅 Today</h3>
                 <h2>{stats['today']}</h2>
             </div>
             """, unsafe_allow_html=True)
@@ -588,14 +588,14 @@ if tab5 is not None:
             avg_per_month = sum([m['count'] for m in stats['by_month']]) / max(len(stats['by_month']), 1)
             st.markdown(f"""
             <div class="metric-card">
-                <h3>📈 Moyenne/Mois</h3>
+                <h3>📈 Average/Month</h3>
                 <h2>{avg_per_month:.1f}</h2>
             </div>
             """, unsafe_allow_html=True)
         
-        # Graphique des tickets par mois
+        # Monthly tickets chart
         if stats['by_month']:
-            st.subheader("📈 Évolution des Tickets par Mois")
+            st.subheader("📈 Ticket Evolution by Month")
             
             df_months = pd.DataFrame(stats['by_month'])
             df_months['month'] = pd.to_datetime(df_months['month'])
@@ -606,11 +606,11 @@ if tab5 is not None:
                 use_container_width=True
             )
             
-            # Tableau détaillé
-            st.subheader("📋 Détail par Mois")
+            # Detailed table
+            st.subheader("📋 Monthly Details")
             df_display = df_months.copy()
             df_display['month'] = df_display['month'].dt.strftime('%B %Y')
-            df_display.columns = ['Mois', 'Nombre de Tickets']
+            df_display.columns = ['Month', 'Number of Tickets']
             
             st.dataframe(
                   df_display,
@@ -618,9 +618,9 @@ if tab5 is not None:
                   hide_index=True
               )
         else:
-            st.info("Aucune donnée disponible pour les graphiques.")
+            st.info("No data available for charts.")
         
-        # Bouton d'actualisation
-        if st.button("🔄 Actualiser les Statistiques", key="refresh_stats"):
+        # Refresh button
+        if st.button("🔄 Refresh Statistics", key="refresh_stats"):
             clear_cache()
             st.rerun()

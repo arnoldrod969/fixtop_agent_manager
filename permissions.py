@@ -148,28 +148,28 @@ class PermissionManager:
         if not PermissionManager.has_permission(page, 'can_view'):
             return []
         
-        available_tabs = ["📋 Liste"]
+        available_tabs = ["📋 List"]
         
         if PermissionManager.has_permission(page, 'can_add'):
-            available_tabs.append("➕ Ajouter")
+            available_tabs.append("➕ Add")
             
         if PermissionManager.has_permission(page, 'can_edit'):
-            available_tabs.append("✏️ Modifier")
+            available_tabs.append("✏️ Edit")
             
         if PermissionManager.has_permission(page, 'can_delete'):
-            available_tabs.append("🗑️ Supprimer")
+            available_tabs.append("🗑️ Delete")
             
         if PermissionManager.has_permission(page, 'can_view_stats'):
-            available_tabs.append("📊 Statistiques")
+            available_tabs.append("📊 Statistics")
             
         return available_tabs
     
     @staticmethod
     def show_access_denied(message: str = None):
-        """Affiche un message d'accès refusé"""
-        default_message = "🚫 Accès refusé - Vous n'avez pas les permissions nécessaires pour accéder à cette fonctionnalité."
+        """Displays an access denied message"""
+        default_message = "🚫 Access denied - You don't have the necessary permissions to access this functionality."
         st.error(message or default_message)
-        st.info("Contactez votre administrateur si vous pensez que c'est une erreur.")
+        st.info("Contact your administrator if you think this is an error.")
         st.stop()
     
     @staticmethod
