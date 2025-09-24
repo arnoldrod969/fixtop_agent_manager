@@ -42,6 +42,14 @@ class PermissionManager:
                 'can_delete': False,
                 'can_view_stats': True,
                 'can_view_all': True
+            },
+            'teams_page': {
+                'can_view': True,
+                'can_add': True,       
+                'can_edit': True,
+                'can_delete': True,
+                'can_view_stats': True,
+                'can_view_all': True
             }
         },
         'manager': {
@@ -73,6 +81,14 @@ class PermissionManager:
                 'can_view': True,
                 'can_add': True,       # Manager peut seulement voir et consulter les stats
                 'can_edit': True,
+                'can_delete': False,
+                'can_view_stats': True,
+                'can_view_all': True
+            },
+            'teams_page': {
+                'can_view': True,
+                'can_add': False,       
+                'can_edit': False,
                 'can_delete': False,
                 'can_view_stats': True,
                 'can_view_all': True

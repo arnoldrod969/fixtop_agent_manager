@@ -447,5 +447,536 @@ class DatabaseManager:
                 'by_role': by_role
             }
 
+
+    def get_teams(self) -> List[Dict]:
+        """Récupère toutes les équipes avec les informations du manager"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.id,
+                       t.code,
+                       t.name,
+                       t.description,
+                       t.manager_id,
+                       t.is_active,
+                       t.created_at,
+                       t.updated_at,
+                       u1.name as created_by_name,
+                       u2.name as updated_by_name,
+                       u3.name as manager_name,
+                       u3.email as manager_email
+                FROM team t
+                LEFT JOIN user u1 ON t.created_by = u1.id
+                LEFT JOIN user u2 ON t.updated_by = u2.id
+                LEFT JOIN user u3 ON t.manager_id = u3.id
+                WHERE t.is_active = 1
+                ORDER BY t.created_at DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_team_by_id(self, team_id: int) -> Optional[Dict]:
+        """Récupère une équipe par son ID avec les informations du manager"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.*, 
+                       u1.name as created_by_name,
+                       u2.name as updated_by_name,
+                       u3.name as manager_name,
+                       u3.email as manager_email
+                FROM team t
+                LEFT JOIN user u1 ON t.created_by = u1.id
+                LEFT JOIN user u2 ON t.updated_by = u2.id
+                LEFT JOIN user u3 ON t.manager_id = u3.id
+                WHERE t.id = ? AND t.is_active = 1
+            """, (team_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def generate_team_code(self) -> str:
+        """
+        Generate a unique team code in format TEAM001, TEAM002, etc.
+        Returns: Generated team code
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT code FROM team 
+                    WHERE code LIKE 'TEAM%' 
+                    ORDER BY CAST(SUBSTR(code, 5) AS INTEGER) DESC 
+                    LIMIT 1
+                """)
+                row = cursor.fetchone()
+                
+                if row and row[0]:
+                    # Extract number from existing code (e.g., TEAM001 -> 1)
+                    last_number = int(row[0][4:])  # Remove 'TEAM' prefix
+                    new_number = last_number + 1
+                else:
+                    # First team
+                    new_number = 1
+                
+                # Format with leading zeros (TEAM001, TEAM002, etc.)
+                return f"TEAM{new_number:03d}"
+                
+        except Exception as e:
+            # Fallback to timestamp-based code if there's an error
+            import time
+            return f"TEAM{int(time.time()) % 10000:04d}"
+
+    def create_team(self, name: str, manager_id: int, description: str = None, created_by: int = None) -> Tuple[bool, str, Optional[int]]:
+        """
+        Create a new team with automatic code generation and manager assignment
+        Args:
+            name: Team name (must be unique)
+            manager_id: ID of the manager (must be unique - one manager per team)
+            description: Optional team description
+            created_by: ID of the user creating the team
+        Returns: (success, message, team_id)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Check if name already exists
+                cursor = conn.execute("""
+                    SELECT id FROM team WHERE name = ? AND is_active = 1
+                """, (name,))
+                if cursor.fetchone():
+                    return False, "A team with this name already exists", None
+
+                # Check if manager is already assigned to another team
+                cursor = conn.execute("""
+                    SELECT id, name FROM team WHERE manager_id = ? AND is_active = 1
+                """, (manager_id,))
+                existing_team = cursor.fetchone()
+                if existing_team:
+                    return False, f"This manager is already assigned to team '{existing_team[1]}'", None
+
+                # Verify that the manager exists and is active
+                cursor = conn.execute("""
+                    SELECT id, name FROM user WHERE id = ? AND is_active = 1
+                """, (manager_id,))
+                manager = cursor.fetchone()
+                if not manager:
+                    return False, "Invalid manager ID or manager is not active", None
+
+                # Generate unique team code
+                team_code = self.generate_team_code()
+                
+                # Ensure code is unique (double-check)
+                cursor = conn.execute("""
+                    SELECT id FROM team WHERE code = ?
+                """, (team_code,))
+                if cursor.fetchone():
+                    # If somehow the code exists, generate a timestamp-based one
+                    import time
+                    team_code = f"TEAM{int(time.time()) % 10000:04d}"
+
+                # Create the team with auto-generated code and manager
+                cursor = conn.execute("""
+                    INSERT INTO team (name, code, description, manager_id, created_by, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (name, team_code, description, manager_id, created_by, created_by))
+                
+                team_id = cursor.lastrowid
+                conn.commit()
+                
+                return True, f"Team '{name}' successfully created with code {team_code} and manager '{manager[1]}'", team_id
+                
+        except Exception as e:
+            return False, f"Error creating team: {str(e)}", None
+
+    def update_team(self, team_id: int, name: str = None, description: str = None, 
+                   manager_id: int = None, updated_by: int = None) -> Tuple[bool, str]:
+        """
+        Met à jour une équipe
+        Retourne: (succès, message)
+        """
+        try:
+            # Construire la requête dynamiquement
+            updates = []
+            params = []
+            
+            if name is not None:
+                # Vérifier si le nom existe déjà (sauf pour cette équipe)
+                with self.get_connection() as conn:
+                    cursor = conn.execute("""
+                        SELECT id FROM team WHERE name = ? AND id != ? AND is_active = 1
+                    """, (name, team_id))
+                    if cursor.fetchone():
+                        return False, "Une équipe avec ce nom existe déjà"
+                
+                updates.append("name = ?")
+                params.append(name)
+            
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            
+            if manager_id is not None:
+                # Vérifier que le manager existe et est actif
+                with self.get_connection() as conn:
+                    cursor = conn.execute("""
+                        SELECT u.id, u.name, u.email FROM user u
+                        JOIN role r ON u.role_id = r.id
+                        WHERE u.id = ? AND u.is_active = 1 AND r.name = 'manager'
+                    """, (manager_id,))
+                    manager = cursor.fetchone()
+                    
+                    if not manager:
+                        return False, "Manager non trouvé ou inactif"
+                    
+                    # Vérifier que ce manager ne gère pas déjà une autre équipe
+                    cursor = conn.execute("""
+                        SELECT id, name FROM team 
+                        WHERE manager_id = ? AND id != ? AND is_active = 1
+                    """, (manager_id, team_id))
+                    existing_team = cursor.fetchone()
+                    
+                    if existing_team:
+                        return False, f"Ce manager gère déjà l'équipe '{existing_team[1]}'"
+                
+                updates.append("manager_id = ?")
+                params.append(manager_id)
+            
+            if updated_by is not None:
+                updates.append("updated_by = ?")
+                params.append(updated_by)
+            
+            # Toujours mettre à jour updated_at
+            updates.append("updated_at = datetime('now')")
+            params.append(team_id)
+            
+            if not updates:
+                return False, "Aucune modification spécifiée"
+            
+            query = f"UPDATE team SET {', '.join(updates)} WHERE id = ? AND is_active = 1"
+            
+            with self.get_connection() as conn:
+                cursor = conn.execute(query, params)
+                
+                if cursor.rowcount == 0:
+                    return False, "Équipe non trouvée"
+                
+                conn.commit()
+                return True, "Équipe mise à jour avec succès"
+                
+        except Exception as e:
+            return False, f"Erreur lors de la mise à jour de l'équipe: {str(e)}"
+
+    def delete_team(self, team_id: int, updated_by: int = None) -> Tuple[bool, str]:
+        """
+        Supprime une équipe (hard delete - suppression définitive)
+        Retourne: (succès, message)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Vérifier si l'équipe existe
+                cursor = conn.execute("""
+                    SELECT name FROM team WHERE id = ? AND is_active = 1
+                """, (team_id,))
+                team = cursor.fetchone()
+                
+                if not team:
+                    return False, "Équipe non trouvée"
+                
+                # Supprimer définitivement tous les membres de l'équipe
+                cursor = conn.execute("""
+                    DELETE FROM team_member 
+                    WHERE team_id = ?
+                """, (team_id,))
+                
+                # Supprimer définitivement l'équipe
+                cursor = conn.execute("""
+                    DELETE FROM team 
+                    WHERE id = ?
+                """, (team_id,))
+                
+                conn.commit()
+                return True, f"Équipe '{team['name']}' supprimée définitivement avec succès"
+                
+        except Exception as e:
+            return False, f"Erreur lors de la suppression de l'équipe: {str(e)}"
+
+    def get_team_stats(self) -> Dict:
+        """Récupère les statistiques des équipes"""
+        with self.get_connection() as conn:
+            # Nombre total d'équipes
+            cursor = conn.execute("SELECT COUNT(*) as total FROM team WHERE is_active = 1")
+            total = cursor.fetchone()['total']
+            
+            # Équipes créées aujourd'hui
+            cursor = conn.execute("""
+                SELECT COUNT(*) as today
+                FROM team 
+                WHERE is_active = 1 AND date(created_at) = date('now')
+            """)
+            today = cursor.fetchone()['today']
+            
+            # Équipes par mois (derniers 6 mois)
+            cursor = conn.execute("""
+                SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as count
+                FROM team 
+                WHERE is_active = 1 AND created_at >= date('now', '-6 months')
+                GROUP BY strftime('%Y-%m', created_at)
+                ORDER BY month DESC
+            """)
+            by_month = [dict(row) for row in cursor.fetchall()]
+            
+            # Taille moyenne des équipes
+            cursor = conn.execute("""
+                SELECT AVG(member_count) as avg_size
+                FROM (
+                    SELECT COUNT(tm.id) as member_count
+                    FROM team t
+                    LEFT JOIN team_member tm ON t.id = tm.team_id AND tm.is_active = 1
+                    WHERE t.is_active = 1
+                    GROUP BY t.id
+                )
+            """)
+            avg_size_result = cursor.fetchone()
+            avg_size = round(avg_size_result['avg_size'] or 0, 1)
+            
+            return {
+                'total': total,
+                'today': today,
+                'by_month': by_month,
+                'avg_size': avg_size
+            }
+
+    # Méthodes pour la gestion des membres d'équipes
+    def get_team_members(self, team_id: int) -> List[Dict]:
+        """Récupère tous les membres d'une équipe"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT tm.*, 
+                       tm.member_id as user_id,
+                       u.name as user_name,
+                       u.email as user_email,
+                       r.name as user_role,
+                       u1.name as created_by_name,
+                       u2.name as updated_by_name
+                FROM team_member tm
+                JOIN user u ON tm.member_id = u.id
+                LEFT JOIN role r ON u.role_id = r.id
+                LEFT JOIN user u1 ON tm.created_by = u1.id
+                LEFT JOIN user u2 ON tm.updated_by = u2.id
+                WHERE tm.team_id = ? AND tm.is_active = 1
+                ORDER BY tm.created_at DESC
+            """, (team_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def add_team_member(self, team_id: int, user_id: int, created_by: int = None) -> Tuple[bool, str]:
+        """
+        Ajoute un membre à une équipe
+        Retourne: (succès, message)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Vérifier si l'équipe existe
+                cursor = conn.execute("""
+                    SELECT name FROM team WHERE id = ? AND is_active = 1
+                """, (team_id,))
+                team = cursor.fetchone()
+                if not team:
+                    return False, "Équipe non trouvée"
+                
+                # Vérifier si l'utilisateur existe
+                cursor = conn.execute("""
+                    SELECT name FROM user WHERE id = ? AND is_active = 1
+                """, (user_id,))
+                user = cursor.fetchone()
+                if not user:
+                    return False, "Utilisateur non trouvé"
+                
+                # Vérifier si l'utilisateur n'est pas déjà membre
+                cursor = conn.execute("""
+                    SELECT id FROM team_member 
+                    WHERE team_id = ? AND member_id = ? AND is_active = 1
+                """, (team_id, user_id))
+                if cursor.fetchone():
+                    return False, f"L'utilisateur {user['name']} est déjà membre de l'équipe {team['name']}"
+                
+                # Ajouter le membre
+                cursor = conn.execute("""
+                    INSERT INTO team_member (team_id, member_id, created_by, updated_by)
+                    VALUES (?, ?, ?, ?)
+                """, (team_id, user_id, created_by, created_by))
+                
+                conn.commit()
+                return True, f"Utilisateur {user['name']} ajouté à l'équipe {team['name']} avec succès"
+                
+        except Exception as e:
+            return False, f"Erreur lors de l'ajout du membre: {str(e)}"
+
+    def remove_team_member(self, team_id: int, user_id: int, updated_by: int = None) -> Tuple[bool, str]:
+        """
+        Retire un membre d'une équipe (hard delete)
+        Retourne: (succès, message)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Vérifier si le membre existe
+                cursor = conn.execute("""
+                    SELECT tm.id, t.name as team_name, u.name as user_name
+                    FROM team_member tm
+                    JOIN team t ON tm.team_id = t.id
+                    JOIN user u ON tm.member_id = u.id
+                    WHERE tm.team_id = ? AND tm.member_id = ? AND tm.is_active = 1
+                """, (team_id, user_id))
+                member = cursor.fetchone()
+                
+                if not member:
+                    return False, "Membre non trouvé dans cette équipe"
+                
+                # Supprimer définitivement le membre (hard delete)
+                cursor = conn.execute("""
+                    DELETE FROM team_member 
+                    WHERE team_id = ? AND member_id = ?
+                """, (team_id, user_id))
+                
+                conn.commit()
+                return True, f"Utilisateur {member['user_name']} retiré de l'équipe {member['team_name']} avec succès"
+                
+        except Exception as e:
+            return False, f"Erreur lors de la suppression du membre: {str(e)}"
+
+    def get_user_teams(self, user_id: int) -> List[Dict]:
+        """Récupère toutes les équipes dont un utilisateur est membre"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.*, tm.created_at as joined_at
+                FROM team t
+                JOIN team_member tm ON t.id = tm.team_id
+                WHERE tm.member_id = ? AND t.is_active = 1 AND tm.is_active = 1
+                ORDER BY tm.created_at DESC
+            """, (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_available_users_for_team(self, team_id: int) -> List[Dict]:
+        """Récupère les agents qui ne sont membres d'aucune équipe active"""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT u.id, u.name, u.email, r.name as role
+                FROM user u
+                LEFT JOIN role r ON u.role_id = r.id
+                WHERE u.is_active = 1 
+                AND r.name = 'agent'
+                AND u.id NOT IN (
+                    SELECT tm.member_id 
+                    FROM team_member tm 
+                    JOIN team t ON tm.team_id = t.id
+                    WHERE tm.is_active = 1 AND t.is_active = 1
+                )
+                ORDER BY u.name
+            """, ())
+            return [dict(row) for row in cursor.fetchall()]
+
+    # Méthodes de validation pour les contraintes d'unicité
+    def is_manager_available(self, manager_id: int, exclude_team_id: int = None) -> bool:
+        """
+        Vérifie si un manager est disponible (pas déjà assigné à une autre équipe)
+        Args:
+            manager_id: ID du manager à vérifier
+            exclude_team_id: ID de l'équipe à exclure de la vérification (pour les mises à jour)
+        Returns:
+            True si le manager est disponible, False sinon
+        """
+        with self.get_connection() as conn:
+            query = """
+                SELECT COUNT(*) as count
+                FROM team 
+                WHERE manager_id = ? AND is_active = 1
+            """
+            params = [manager_id]
+            
+            if exclude_team_id:
+                query += " AND id != ?"
+                params.append(exclude_team_id)
+            
+            cursor = conn.execute(query, params)
+            result = cursor.fetchone()
+            return result['count'] == 0
+
+    def is_agent_available(self, user_id: int, exclude_team_id: int = None) -> bool:
+        """
+        Vérifie si un agent est disponible (pas déjà membre d'une autre équipe)
+        Args:
+            user_id: ID de l'utilisateur à vérifier
+            exclude_team_id: ID de l'équipe à exclure de la vérification (pour les mises à jour)
+        Returns:
+            True si l'agent est disponible, False sinon
+        """
+        with self.get_connection() as conn:
+            query = """
+                SELECT COUNT(*) as count
+                FROM team_member tm
+                JOIN team t ON tm.team_id = t.id
+                WHERE tm.member_id = ? AND tm.is_active = 1 AND t.is_active = 1
+            """
+            params = [user_id]
+            
+            if exclude_team_id:
+                query += " AND tm.team_id != ?"
+                params.append(exclude_team_id)
+            
+            cursor = conn.execute(query, params)
+            result = cursor.fetchone()
+            return result['count'] == 0
+
+    def get_manager_current_team(self, manager_id: int) -> Dict:
+        """
+        Récupère l'équipe actuellement gérée par un manager
+        Returns:
+            Dictionnaire avec les informations de l'équipe ou None si aucune équipe
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id, name, code, description
+                FROM team 
+                WHERE manager_id = ? AND is_active = 1
+            """, (manager_id,))
+            result = cursor.fetchone()
+            return dict(result) if result else None
+
+    def get_agent_current_team(self, user_id: int) -> Dict:
+        """
+        Récupère l'équipe dont un agent est actuellement membre
+        Returns:
+            Dictionnaire avec les informations de l'équipe ou None si aucune équipe
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.id, t.name, t.code, t.description
+                FROM team t
+                JOIN team_member tm ON t.id = tm.team_id
+                WHERE tm.member_id = ? AND tm.is_active = 1 AND t.is_active = 1
+            """, (user_id,))
+            result = cursor.fetchone()
+            return dict(result) if result else None
+
+    def validate_team_constraints(self, manager_id: int, member_ids: List[int] = None, exclude_team_id: int = None) -> Tuple[bool, str]:
+        """
+        Valide toutes les contraintes d'équipe avant création/modification
+        Args:
+            manager_id: ID du manager
+            member_ids: Liste des IDs des membres (optionnel)
+            exclude_team_id: ID de l'équipe à exclure (pour les mises à jour)
+        Returns:
+            (succès, message d'erreur si échec)
+        """
+        # Vérifier la disponibilité du manager
+        if not self.is_manager_available(manager_id, exclude_team_id):
+            current_team = self.get_manager_current_team(manager_id)
+            return False, f"Ce manager gère déjà l'équipe '{current_team['name']}' (Code: {current_team['code']})"
+            
+            # Vérifier la disponibilité des membres si fournis
+            if member_ids:
+                for member_id in member_ids:
+                    if not self.is_agent_available(member_id, exclude_team_id):
+                        current_team = self.get_agent_current_team(member_id)
+                        user_info = self.get_user_by_id(member_id)
+                        return False, f"L'agent '{user_info['name']}' appartient déjà à l'équipe '{current_team['name']}' (Code: {current_team['code']})"
+            
+            return True, "Toutes les contraintes sont respectées"
+
+
 # Instance globale du gestionnaire de base de données
 db_manager = DatabaseManager()
