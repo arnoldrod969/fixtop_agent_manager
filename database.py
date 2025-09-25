@@ -977,6 +977,137 @@ class DatabaseManager:
             
             return True, "Toutes les contraintes sont respectées"
 
+    # ==================== MÉTHODES DE SUPPRESSION CONDITIONNELLE ====================
+
+    def check_user_is_member(self, user_id: int) -> bool:
+        """
+        Check if a user is a member belong to a team
+        Returns True if the user is a member, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM team_member
+                    WHERE member_id = ? AND is_active = 1
+                """, (user_id,))
+                result = cursor.fetchone()
+                return result['count'] > 0
+        except Exception as e:
+            return False
+
+    def check_user_is_manager(self, user_id: int) -> bool:
+        """
+        Check if a user is a manager
+        Returns True if the user is a manager, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM team 
+                    WHERE manager_id = ? AND is_active = 1
+                """, (user_id,))
+                result = cursor.fetchone()
+                return result['count'] > 0
+        except Exception as e:
+            return False
+    
+    def check_user_activity(self, user_id: int) -> bool:
+        """
+        Check if a user has performed operations in the system
+        Returns True if the user has activity, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                # Check in problems table (tickets)
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM problems 
+                    WHERE created_by = ? OR updated_by = ?
+                """, (user_id, user_id))
+                problems_count = cursor.fetchone()['count']
+                
+                # Check in user table (creation/modification of other users)
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM user 
+                    WHERE (created_by = ? OR updated_by = ?) AND id != ?
+                """, (user_id, user_id, user_id))
+                users_count = cursor.fetchone()['count']
+                
+                # Check in team table (creation/modification of teams)
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM team 
+                    WHERE ( created_by = ? OR updated_by = ? OR manager_id = ? )
+                """, (user_id, user_id, user_id))
+                teams_count = cursor.fetchone()['count']
+                
+                # Check in team_member table (adding members)
+                cursor = conn.execute("""
+                    SELECT 1 as count FROM team_member 
+                    WHERE (created_by = ? OR updated_by = ? OR member_id = ?)
+                """, (user_id, user_id, user_id))
+                team_members_count = cursor.fetchone()['count']
+                
+                # If the user has activity in at least one table
+                total_activity = problems_count + users_count + teams_count + team_members_count
+                return total_activity > 0
+                
+        except Exception as e:
+            # In case of error, consider there is activity (safety)
+            return True
+    
+    def hard_delete_user(self, user_id: int) -> Tuple[bool, str]:
+        """
+        Permanently delete a user from the database
+        WARNING: This operation is irreversible
+        Returns: (success, message)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Check that the user exists
+                cursor = conn.execute("""
+                    SELECT name FROM user WHERE id = ?
+                """, (user_id,))
+                user = cursor.fetchone()
+                
+                if not user:
+                    return False, "User not found"
+                
+                # Permanently delete the user
+                cursor = conn.execute("""
+                    DELETE FROM user WHERE id = ?
+                """, (user_id,))
+                
+                if cursor.rowcount == 0:
+                    return False, "Error during deletion"
+                
+                conn.commit()
+                return True, f"User '{user['name']}' permanently deleted"
+                
+        except Exception as e:
+            return False, f"Error during permanent deletion: {str(e)}"
+    
+    def delete_user_conditional(self, user_id: int) -> Tuple[bool, str, str]:
+        """
+        Delete a user with conditional logic:
+        - Hard delete if no activity detected
+        - Soft delete if the user has activity
+        Returns: (success, message, deletion_type)
+        """
+        try:
+            # Check user activity
+            has_activity = self.check_user_activity(user_id)
+            
+            if has_activity:
+                # Soft delete - mark as inactive
+                success, message = self.delete_user(user_id)
+                return success, message, "soft"
+            else:
+                # Hard delete - permanent deletion
+                success, message = self.hard_delete_user(user_id)
+                return success, message, "hard"
+                
+        except Exception as e:
+            return False, f"Error during conditional deletion: {str(e)}", "error"
+
 
 # Instance globale du gestionnaire de base de données
 db_manager = DatabaseManager()
