@@ -1033,7 +1033,7 @@ if "✏️ Edit" in available_tabs:
                         try:
                             selected_user = available_users[selected_user_index]
                             
-                            # Validation supplémentaire : vérifier que l'utilisateur est un agent disponible
+                            # Additional validation: check that the user is an available agent
                             if selected_user['role'].lower() != 'agent':
                                 st.error(f"❌ Only agents can be added as team members. Selected user has role: {selected_user['role']}")
                             elif not db_manager.is_agent_available(selected_user['id']):
@@ -1133,7 +1133,7 @@ if "📊 Statistics" in available_tabs:
             if date_filter_type != "All":
                 date_col1, date_col2 = st.columns(2)
                 
-                # Calculer des valeurs par défaut intelligentes
+                # Calculate intelligent default values
                 if not teams_df.empty:
                     min_date = teams_df['created_at'].min().date() if date_filter_type == "Creation Date" else teams_df['updated_at'].min().date() if 'updated_at' in teams_df.columns else teams_df['created_at'].min().date()
                     max_date = teams_df['created_at'].max().date() if date_filter_type == "Creation Date" else teams_df['updated_at'].max().date() if 'updated_at' in teams_df.columns else teams_df['created_at'].max().date()
@@ -1261,7 +1261,7 @@ if "📊 Statistics" in available_tabs:
                         'Last modified': team.get('updated_at', 'N/A')
                     })
                 else:
-                    # Create one row per member, but filter by selected agents if any
+                        # Create one row per member, but filter by selected agents if any
                     for member in members:
                         # If agents are selected, only show members that match the selected agents
                         if selected_agents and member.get('user_name') not in selected_agents:

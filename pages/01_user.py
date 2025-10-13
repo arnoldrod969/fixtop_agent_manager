@@ -225,7 +225,7 @@ if "➕ Add" in available_tabs:
                 nin = st.text_input("NIN", placeholder="Identification number (optional)")
             with col2:
                 role_options_add = [role['name'] for role in roles] if roles else []
-                selected_roles = st.multiselect("Rôles *", role_options_add, help="Sélectionnez un ou plusieurs rôles")
+                selected_roles = st.multiselect("Roles *", role_options_add, help="Select one or more roles")
                 password = st.text_input("Password *", type="password", placeholder="Secure password")
                 confirm_password = st.text_input("Confirm password *", type="password", placeholder="Confirm password")
             
@@ -234,7 +234,7 @@ if "➕ Add" in available_tabs:
                 if not name.strip() or not email.strip() or not password or not confirm_password:
                     st.error("❌ All fields marked with * are required")
                 elif not selected_roles:
-                    st.error("❌ Au moins un rôle doit être sélectionné")
+                    st.error("❌ At least one role must be selected")
                 elif not is_valid_email(email):
                     st.error("❌ Invalid email format")
                 elif password != confirm_password:
@@ -251,22 +251,22 @@ if "➕ Add" in available_tabs:
                         # Get role_ids from selected role names
                         role_ids = [role['id'] for role in roles if role['name'] in selected_roles]
                         if not role_ids:
-                            st.error("❌ Rôles invalides")
+                            st.error("❌ Invalid roles")
                         else:
                             created_by = st.session_state.get('user_id', 1)  # Connected user ID
                             
-                            # Créer l'utilisateur avec le premier rôle (pour compatibilité avec la table user)
+                            # Create user with first role (for compatibility with user table)
                             success, message, user_id = db_manager.create_user(
                                 nin=nin.strip() if nin.strip() else None,
                                 name=name.strip(),
                                 email=email.strip().lower(),
                                 password=password,
-                                role_id=role_ids[0],  # Premier rôle pour la table user
+                                role_id=role_ids[0],  # First role for user table
                                 created_by=created_by
                             )
                             
                             if success and user_id:
-                                # Assigner tous les rôles sélectionnés dans la table user_role
+                                # Assign all selected roles in user_role table
                                 roles_success, roles_message = db_manager.assign_user_roles(
                                     user_id=user_id,
                                     role_ids=role_ids,
@@ -274,12 +274,12 @@ if "➕ Add" in available_tabs:
                                 )
                                 
                                 if roles_success:
-                                    st.success(f"✅ Utilisateur créé avec succès avec {len(role_ids)} rôle(s)")
+                                    st.success(f"✅ User created successfully with {len(role_ids)} role(s)")
                                     st.balloons()
                                     time.sleep(1)
                                     st.rerun()
                                 else:
-                                    st.warning(f"⚠️ Utilisateur créé mais erreur lors de l'assignation des rôles: {roles_message}")
+                                    st.warning(f"⚠️ User created but error during role assignment: {roles_message}")
                             else:
                                 st.error(f"❌ {message}")
 
@@ -308,9 +308,9 @@ if "✏️ Edit" in available_tabs:
                     st.write(f"**NIN:** {user_data.get('nin', 'Not provided')}")
                 with col2:
                     if current_role_names:
-                        st.write(f"**Rôles:** {', '.join(current_role_names)}")
+                        st.write(f"**Roles:** {', '.join(current_role_names)}")
                     else:
-                        st.write(f"**Rôle (legacy):** {user_data.get('role_name', 'Not defined')}")
+                        st.write(f"**Role (legacy):** {user_data.get('role_name', 'Not defined')}")
                     status_text = "Active" if user_data['is_active'] == 1 else "Inactive"
                     st.write(f"**Status:** {status_text}")
                     st.write(f"**Created on:** {user_data.get('created_at', 'Not available')}")
@@ -323,9 +323,9 @@ if "✏️ Edit" in available_tabs:
                     new_nin = st.text_input("NIN", value=user_data['nin'] or "")
                 with col2:
                     role_options_edit = [role['name'] for role in roles] if roles else []
-                    # Utiliser les rôles actuels de user_role si disponibles, sinon fallback sur role_name
+                    # Use current roles from user_role if available, otherwise fallback to role_name
                     default_roles = current_role_names if current_role_names else ([user_data['role_name']] if user_data.get('role_name') else [])
-                    new_roles = st.multiselect("Rôles *", role_options_edit, default=default_roles, help="Sélectionnez un ou plusieurs rôles")
+                    new_roles = st.multiselect("Roles *", role_options_edit, default=default_roles, help="Select one or more roles")
                     new_status = st.selectbox("Status", ["Active", "Inactive"], index=0 if user_data['is_active'] == 1 else 1)
                     change_password = st.checkbox("Change password")
                     new_password = st.text_input("New password", type="password", placeholder="New secure password" if change_password else "Check 'Change password' to enable", disabled=not change_password)
@@ -368,23 +368,23 @@ if "✏️ Edit" in available_tabs:
                             # Get role_ids from new_roles
                             new_role_ids = [role['id'] for role in roles if role['name'] in new_roles]
                             if not new_role_ids:
-                                st.error("❌ Rôles invalides")
+                                st.error("❌ Invalid roles")
                             else:
                                 updated_by = st.session_state.get('user_id', 1)
                                 
-                                # Mettre à jour les informations de base de l'utilisateur
+                                # Update basic user information
                                 success, message = db_manager.update_user(
                                     user_id=selected_user_id,
                                     name=new_name.strip(),
                                     email=new_email.strip().lower(),
-                                    role_id=new_role_ids[0],  # Premier rôle pour compatibilité avec la table user
+                                    role_id=new_role_ids[0],  # First role for compatibility with user table
                                     nin=new_nin.strip() if new_nin.strip() else None,
                                     is_active=1 if new_status == "Active" else 0,
                                     updated_by=updated_by
                                 )
                                 
                                 if success:
-                                    # Mettre à jour les rôles dans user_role
+                                    # Update roles in user_role
                                     roles_success, roles_message = db_manager.update_user_roles(
                                         user_id=selected_user_id,
                                         new_role_ids=new_role_ids,
@@ -399,12 +399,12 @@ if "✏️ Edit" in available_tabs:
                                             conn.commit()
                                     
                                     if roles_success:
-                                        st.success(f"✅ Utilisateur mis à jour avec succès avec {len(new_role_ids)} rôle(s)")
+                                        st.success(f"✅ User updated successfully with {len(new_role_ids)} role(s)")
                                         st.balloons()
                                         time.sleep(1)
                                         st.rerun()
                                     else:
-                                        st.warning(f"⚠️ Utilisateur mis à jour mais erreur lors de la mise à jour des rôles: {roles_message}")
+                                        st.warning(f"⚠️ User updated but error during role update: {roles_message}")
                                 else:
                                     st.error(f"❌ {message}")
                 
@@ -452,7 +452,7 @@ if "🗑️ Delete" in available_tabs:
             }
 
             selected_user_key = st.selectbox(
-                "Sélectionner un utilisateur à supprimer",
+                "Select a user to delete",
                 options=list(user_options.keys()),
                 key="delete_user_select",
             )

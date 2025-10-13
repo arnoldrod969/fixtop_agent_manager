@@ -45,20 +45,20 @@ class DatabaseManager:
         errors = []
         
         if len(password) < 8:
-            errors.append("Le mot de passe doit contenir au moins 8 caractères")
+            errors.append("Password must contain at least 8 characters")
         
         if not any(c.isupper() for c in password):
-            errors.append("Le mot de passe doit contenir au moins une majuscule")
+            errors.append("Password must contain at least one uppercase letter")
         
         if not any(c.islower() for c in password):
-            errors.append("Le mot de passe doit contenir au moins une minuscule")
+            errors.append("Password must contain at least one lowercase letter")
         
         if not any(c.isdigit() for c in password):
-            errors.append("Le mot de passe doit contenir au moins un chiffre")
+            errors.append("Password must contain at least one digit")
         
         special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
         if not any(c in special_chars for c in password):
-            errors.append("Le mot de passe doit contenir au moins un caractère spécial")
+            errors.append("Password must contain at least one special character")
         
         # Vérifier les mots de passe communs
         common_passwords = [
@@ -66,7 +66,7 @@ class DatabaseManager:
             "password123", "admin", "letmein", "welcome", "monkey"
         ]
         if password.lower() in common_passwords:
-            errors.append("Ce mot de passe est trop commun")
+            errors.append("This password is too common")
         
         return len(errors) == 0, errors
     
@@ -1242,6 +1242,204 @@ class DatabaseManager:
                 
         except Exception as e:
             return False, f"Erreur lors de la mise à jour des rôles: {str(e)}"
+
+    # ==================== STATISTIQUES POUR LE TABLEAU DE BORD ====================
+    
+    def get_dashboard_stats(self, time_period: str = "all") -> Dict:
+        """Retrieves all statistics for the dashboard with time filtering
+        
+        Args:
+            time_period: Filter period - 'today', 'last_week', 'last_month', 'this_year', or 'all'
+        """
+        try:
+            with self.get_connection() as conn:
+                stats = {}
+                
+                # Define time filters
+                time_filters = {
+                    'today': "date(created_at) = date('now')",
+                    'last_week': "created_at >= date('now', '-7 days')",
+                    'last_month': "created_at >= date('now', '-1 month')",
+                    'this_year': "created_at >= date('now', 'start of year')",
+                    'all': "1=1"  # No filter
+                }
+                
+                time_filter = time_filters.get(time_period, time_filters['all'])
+                
+                # Number of active users (filtered by time if not 'all')
+                if time_period == 'all':
+                    cursor = conn.execute("SELECT COUNT(*) FROM user WHERE is_active = 1")
+                else:
+                    cursor = conn.execute(f"""
+                        SELECT COUNT(*) FROM user 
+                        WHERE is_active = 1 AND {time_filter}
+                    """)
+                stats['active_users'] = cursor.fetchone()[0]
+                
+                # Number of active problems/tickets (filtered by time if not 'all')
+                if time_period == 'all':
+                    cursor = conn.execute("SELECT COUNT(*) FROM problems WHERE is_active = 1")
+                else:
+                    cursor = conn.execute(f"""
+                        SELECT COUNT(*) FROM problems 
+                        WHERE is_active = 1 AND {time_filter}
+                    """)
+                stats['active_problems'] = cursor.fetchone()[0]
+                
+                # Number of active agents (users with agent role) - filtered by time if not 'all'
+                if time_period == 'all':
+                    cursor = conn.execute("""
+                        SELECT COUNT(*) 
+                        FROM user_role ur 
+                        JOIN user u ON ur.user_id = u.id 
+                        JOIN role r ON ur.role_id = r.id 
+                        WHERE r.name = 'agent' AND ur.is_active = 1 AND u.is_active = 1
+                    """)
+                else:
+                    # Use user creation date for filtering user roles
+                    user_time_filter = time_filter.replace('created_at', 'u.created_at')
+                    cursor = conn.execute(f"""
+                        SELECT COUNT(*) 
+                        FROM user_role ur 
+                        JOIN user u ON ur.user_id = u.id 
+                        JOIN role r ON ur.role_id = r.id 
+                        WHERE r.name = 'agent' AND ur.is_active = 1 AND u.is_active = 1 
+                        AND {user_time_filter}
+                    """)
+                stats['active_teams'] = cursor.fetchone()[0]
+                
+                # Number of active managers (users with manager role) - filtered by time if not 'all'
+                if time_period == 'all':
+                    cursor = conn.execute("""
+                        SELECT COUNT(*) 
+                        FROM user_role ur 
+                        JOIN user u ON ur.user_id = u.id 
+                        JOIN role r ON ur.role_id = r.id 
+                        WHERE r.name = 'manager' AND ur.is_active = 1 AND u.is_active = 1
+                    """)
+                else:
+                    # Use user creation date for filtering user roles
+                    user_time_filter = time_filter.replace('created_at', 'u.created_at')
+                    cursor = conn.execute(f"""
+                        SELECT COUNT(*) 
+                        FROM user_role ur 
+                        JOIN user u ON ur.user_id = u.id 
+                        JOIN role r ON ur.role_id = r.id 
+                        WHERE r.name = 'manager' AND ur.is_active = 1 AND u.is_active = 1 
+                        AND {user_time_filter}
+                    """)
+                stats['active_managers'] = cursor.fetchone()[0]
+                
+                # Number of active teams - filtered by time if not 'all'
+                if time_period == 'all':
+                    cursor = conn.execute("SELECT COUNT(*) FROM team WHERE is_active = 1")
+                else:
+                    cursor = conn.execute(f"""
+                        SELECT COUNT(*) FROM team 
+                        WHERE is_active = 1 AND {time_filter}
+                    """)
+                stats['active_teams_count'] = cursor.fetchone()[0]
+                
+                # Payment rate as performance metric (filtered by time if not 'all')
+                if time_period == 'all':
+                    cursor = conn.execute("""
+                        SELECT ROUND((COUNT(CASE WHEN is_paid = 1 THEN 1 END) * 100.0 / COUNT(*)), 1) 
+                        FROM problems WHERE is_active = 1
+                    """)
+                else:
+                    cursor = conn.execute(f"""
+                        SELECT ROUND((COUNT(CASE WHEN is_paid = 1 THEN 1 END) * 100.0 / COUNT(*)), 1) 
+                        FROM problems WHERE is_active = 1 AND {time_filter}
+                    """)
+                result = cursor.fetchone()[0]
+                stats['payment_rate'] = result if result is not None else 0.0
+                
+                # User evolution (based on selected period)
+                cursor = conn.execute(f"""
+                    SELECT COUNT(*) FROM user 
+                    WHERE is_active = 1 AND {time_filter}
+                """)
+                stats['new_users_period'] = cursor.fetchone()[0]
+                
+                # Problem evolution (based on selected period)
+                cursor = conn.execute(f"""
+                    SELECT COUNT(*) FROM problems 
+                    WHERE is_active = 1 AND {time_filter}
+                """)
+                stats['new_problems_period'] = cursor.fetchone()[0]
+                
+                # Add period info for display
+                stats['time_period'] = time_period
+                
+                return stats
+                
+        except Exception as e:
+            print(f"Error retrieving statistics: {str(e)}")
+            return {
+                'active_users': 0,
+                'active_problems': 0,
+                'active_teams': 0,
+                'payment_rate': 0.0,
+                'new_users_period': 0,
+                'new_problems_period': 0,
+                'time_period': time_period
+            }
+    
+    def get_recent_notifications(self) -> List[Dict]:
+        """Retrieves recent notifications for the dashboard"""
+        try:
+            notifications = []
+            
+            with self.get_connection() as conn:
+                # Unpaid problems
+                cursor = conn.execute("""
+                    SELECT COUNT(*) FROM problems 
+                    WHERE is_active = 1 AND is_paid = 0
+                """)
+                unpaid_count = cursor.fetchone()[0]
+                
+                if unpaid_count > 0:
+                    notifications.append({
+                        'type': 'warning',
+                        'message': f"{unpaid_count} problem(s) require payment",
+                        'icon': '💰'
+                    })
+                
+                # New users this week
+                cursor = conn.execute("""
+                    SELECT COUNT(*) FROM user 
+                    WHERE is_active = 1 AND created_at >= date('now', '-7 days')
+                """)
+                new_users = cursor.fetchone()[0]
+                
+                if new_users > 0:
+                    notifications.append({
+                        'type': 'info',
+                        'message': f"{new_users} new user(s) this week",
+                        'icon': '👥'
+                    })
+                
+                # Active teams
+                cursor = conn.execute("SELECT COUNT(*) FROM team WHERE is_active = 1")
+                active_teams = cursor.fetchone()[0]
+                
+                notifications.append({
+                    'type': 'success',
+                    'message': f"{active_teams} active team(s)",
+                    'icon': '✅'
+                })
+                
+                return notifications
+                
+        except Exception as e:
+            print(f"Error retrieving notifications: {str(e)}")
+            return [
+                {
+                    'type': 'info',
+                    'message': 'System operational',
+                    'icon': '✅'
+                }
+            ]
 
 
 # Instance globale du gestionnaire de base de données
