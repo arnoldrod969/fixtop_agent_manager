@@ -17,7 +17,7 @@ build/
 *.egg
 
 # database
-*.db
+#*.db
 
 # Unit test / coverage reports
 htmlcov/
