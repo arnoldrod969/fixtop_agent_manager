@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "fixtop_agent.db"):
+    def __init__(self, db_path: str = "fixtop_agent_copy.db"):
         """Initialise le gestionnaire de base de données"""
         self.db_path = db_path
         self.ensure_connection()
@@ -273,13 +273,33 @@ class DatabaseManager:
     def get_all_problems(self) -> List[Dict]:
         """Récupère tous les tickets/problèmes"""
         with self.get_connection() as conn:
+            # Ancienne requête (défectueuse - référence te.manager_id avant jointure) :
+            # SELECT DISTINCT p.*, u1.name as created_by_name, u2.name as updated_by_name, te.id as te_id, te.name as team_name
+            # FROM problems p
+            # LEFT JOIN team_member tm on p.created_by in (te.manager_id, tm.member_id)
+            # LEFT join team te on te.id = tm.team_id
+            # LEFT JOIN user u1 ON p.created_by = u1.id
+            # LEFT JOIN user u2 ON p.updated_by = u2.id
+            # WHERE p.is_active = 1 and te.is_active = 1 and tm.is_active = 1
+            
             cursor = conn.execute("""
                 SELECT p.*, 
                        u1.name as created_by_name,
-                       u2.name as updated_by_name
+                       u2.name as updated_by_name,
+                       t.id as te_id,
+                       t.name as team_name
                 FROM problems p
                 LEFT JOIN user u1 ON p.created_by = u1.id
                 LEFT JOIN user u2 ON p.updated_by = u2.id
+                LEFT JOIN (
+                    -- Sous-requête pour obtenir l'équipe de l'utilisateur (manager ou membre)
+                    -- SELECT t.id, t.name, t.manager_id as user_id FROM team t WHERE t.is_active = 1
+                    -- UNION
+                    SELECT t.id, t.name, tm.member_id as user_id 
+                    FROM team t 
+                    JOIN team_member tm ON t.id = tm.team_id 
+                    WHERE t.is_active = 1 AND tm.is_active = 1
+                ) t ON p.created_by = t.user_id
                 WHERE p.is_active = 1
                 ORDER BY p.created_at DESC
             """)
@@ -301,23 +321,29 @@ class DatabaseManager:
             return dict(row) if row else None
     
     def create_problem(self, customer_name: str, customer_phone: str, 
-                      problem_desc: str, created_by: int) -> Tuple[bool, str]:
+                      problem_desc: str, created_by: int, is_paid: int = 0, 
+                      amount: float = 0, craft_ids: str = None, 
+                      speciality_ids: str = None, updated_by: int = None) -> Tuple[bool, str, int]:
         """
         Crée un nouveau ticket/problème
-        Retourne: (succès, message)
+        Retourne: (succès, message, problem_id)
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.execute("""
-                    INSERT INTO problems (customer_name, customer_phone, problem_desc, created_by)
-                    VALUES (?, ?, ?, ?)
-                """, (customer_name, customer_phone, problem_desc, created_by))
+                    INSERT INTO problems (customer_name, customer_phone, problem_desc, 
+                                        is_paid, amount, craft_ids, speciality_ids, 
+                                        created_by, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (customer_name, customer_phone, problem_desc, is_paid, amount, 
+                     craft_ids, speciality_ids, created_by, updated_by or created_by))
                 
+                problem_id = cursor.lastrowid
                 conn.commit()
-                return True, f"Problem created successfully (ID: {cursor.lastrowid})"
+                return True, f"Problem created successfully (ID: {problem_id})", problem_id
                 
         except Exception as e:
-            return False, f"Error creating problem: {str(e)}"
+            return False, f"Error creating problem: {str(e)}", None
     
     def update_problem(self, problem_id: int, customer_name: str = None, 
                       customer_phone: str = None, problem_desc: str = None, 
@@ -856,7 +882,8 @@ class DatabaseManager:
             cursor = conn.execute("""
                 SELECT u.id, u.name, u.email, r.name as role
                 FROM user u
-                LEFT JOIN role r ON u.role_id = r.id
+                LEFT JOIN user_role ur ON ur.user_id = u.id
+                LEFT JOIN role r ON r.id = ur.role_id
                 WHERE u.is_active = 1 
                 AND r.name = 'agent'
                 AND u.id NOT IN (
@@ -1107,6 +1134,114 @@ class DatabaseManager:
                 
         except Exception as e:
             return False, f"Error during conditional deletion: {str(e)}", "error"
+
+    def assign_user_roles(self, user_id: int, role_ids: list, created_by: int) -> Tuple[bool, str]:
+        """
+        Assigne plusieurs rôles à un utilisateur dans la table user_role
+        Args:
+            user_id: ID de l'utilisateur
+            role_ids: Liste des IDs des rôles à assigner
+            created_by: ID de l'utilisateur qui effectue l'assignation
+        Returns: (succès, message)
+        """
+        try:
+            with self.get_connection() as conn:
+                # Supprimer les anciens rôles de l'utilisateur (optionnel, selon la logique métier)
+                # conn.execute("DELETE FROM user_role WHERE user_id = ?", (user_id,))
+                
+                # Insérer les nouveaux rôles
+                for role_id in role_ids:
+                    # Vérifier si la combinaison user_id/role_id existe déjà
+                    existing = conn.execute("""
+                        SELECT id FROM user_role 
+                        WHERE user_id = ? AND role_id = ?
+                    """, (user_id, role_id)).fetchone()
+                    
+                    if not existing:
+                        conn.execute("""
+                            INSERT INTO user_role (user_id, role_id, is_active, created_by, created_at)
+                            VALUES (?, ?, 1, ?, datetime('now'))
+                        """, (user_id, role_id, created_by))
+                    else:
+                        # Réactiver le rôle s'il existe mais est inactif
+                        conn.execute("""
+                            UPDATE user_role 
+                            SET is_active = 1, updated_by = ?, updated_at = datetime('now')
+                            WHERE user_id = ? AND role_id = ?
+                        """, (created_by, user_id, role_id))
+                
+                conn.commit()
+                return True, f"Rôles assignés avec succès à l'utilisateur"
+                
+        except Exception as e:
+            return False, f"Erreur lors de l'assignation des rôles: {str(e)}"
+
+    def get_user_roles(self, user_id: int) -> List[Dict]:
+        """Récupère tous les rôles actifs d'un utilisateur depuis la table user_role"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT r.id, r.name, ur.created_at
+                    FROM user_role ur
+                    JOIN role r ON ur.role_id = r.id
+                    WHERE ur.user_id = ? AND ur.is_active = 1
+                    ORDER BY r.name
+                """, (user_id,))
+                
+                roles = []
+                for row in cursor.fetchall():
+                    roles.append({
+                        'id': row[0],
+                        'name': row[1],
+                        'assigned_at': row[2]
+                    })
+                
+                return roles
+                
+        except Exception as e:
+            print(f"Erreur lors de la récupération des rôles utilisateur: {str(e)}")
+            return []
+
+    def update_user_roles(self, user_id: int, new_role_ids: list, updated_by: int) -> Tuple[bool, str]:
+        """Met à jour les rôles d'un utilisateur dans la table user_role"""
+        try:
+            with self.get_connection() as conn:
+                # Désactiver tous les rôles actuels
+                conn.execute("""
+                    UPDATE user_role 
+                    SET is_active = 0, updated_by = ?, updated_at = datetime('now')
+                    WHERE user_id = ?
+                """, (updated_by, user_id))
+                
+                # Assigner les nouveaux rôles
+                for role_id in new_role_ids:
+                    # Vérifier si le rôle existe déjà pour cet utilisateur
+                    cursor = conn.execute("""
+                        SELECT id FROM user_role 
+                        WHERE user_id = ? AND role_id = ?
+                    """, (user_id, role_id))
+                    
+                    existing_role = cursor.fetchone()
+                    
+                    if existing_role:
+                        # Réactiver le rôle existant
+                        conn.execute("""
+                            UPDATE user_role 
+                            SET is_active = 1, updated_by = ?, updated_at = datetime('now')
+                            WHERE user_id = ? AND role_id = ?
+                        """, (updated_by, user_id, role_id))
+                    else:
+                        # Créer un nouveau rôle
+                        conn.execute("""
+                            INSERT INTO user_role (user_id, role_id, is_active, created_by, created_at)
+                            VALUES (?, ?, 1, ?, datetime('now'))
+                        """, (user_id, role_id, updated_by))
+                
+                conn.commit()
+                return True, f"Rôles mis à jour avec succès"
+                
+        except Exception as e:
+            return False, f"Erreur lors de la mise à jour des rôles: {str(e)}"
 
 
 # Instance globale du gestionnaire de base de données

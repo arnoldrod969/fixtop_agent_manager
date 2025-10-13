@@ -20,6 +20,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
 
+from components.sidebar import show_sidebar
+
 # Add parent directory to path to import database and permissions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db_manager
@@ -259,6 +261,8 @@ def is_valid_email(email):
 
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
     st.switch_page("app.py")  # Redirect to home/login if not connected
+
+show_sidebar()
 
 # Check page access permissions
 if not PermissionManager.check_page_access('teams_page'):
@@ -1296,12 +1300,13 @@ if "📊 Statistics" in available_tabs:
                     )
             
             with export_col2:
-                pdf_data = export_to_pdf(display_df, "Team Statistics Report")
-                if pdf_data:
-                    st.download_button(
-                        label="📄 Export to PDF",
-                        data=pdf_data,
-                        file_name=f"team_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                if st.button("📄 Export to PDF", key="export_pdf_button"):
+                    pdf_data = export_to_pdf(display_df, "Team Statistics Report")
+                    if pdf_data:
+                        st.download_button(
+                            label="📄 Export to PDF",
+                            data=pdf_data,
+                            file_name=f"team_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                         mime="application/pdf",
                         help="Download the filtered data as PDF file"
                     )

@@ -79,8 +79,8 @@ class PermissionManager:
             },
             'ticket_page': {
                 'can_view': True,
-                'can_add': True,       # Manager peut seulement voir et consulter les stats
-                'can_edit': True,
+                'can_add': False,       # Manager peut seulement voir et consulter les stats
+                'can_edit': False,
                 'can_delete': False,
                 'can_view_stats': True,
                 'can_view_all': True

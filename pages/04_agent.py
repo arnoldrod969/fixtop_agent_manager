@@ -7,6 +7,8 @@ import random
 import re
 import time
 
+from components.sidebar import show_sidebar
+
 # Add parent directory to path to import database and permissions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db_manager
@@ -20,6 +22,8 @@ def is_valid_email(email):
 
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
     st.switch_page("app.py")  # Redirect to home/login if not connected
+
+show_sidebar()
 
 # Check page access permissions
 if not PermissionManager.check_page_access('agent_page'):
@@ -183,7 +187,7 @@ if "➕ Add" in available_tabs:
                             if success:
                                 st.success(f"✅ {message}")
                                 st.balloons()
-                                time.sleep(1)
+                                time.sleep(2)
                                 st.rerun()
                             else:
                                 st.error(f"❌ {message}")
