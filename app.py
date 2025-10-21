@@ -1,4 +1,6 @@
 import streamlit as st
+
+from components.sidebar import show_sidebar
 from database import DatabaseManager, db_manager
 
 def login_page():
@@ -162,28 +164,7 @@ def role_selection_page():
 def home_page():
     """Home page after login"""
     # Sidebar with user information
-    with st.sidebar:
-        st.title("🤖 Fixtop Agent")
-        
-        # Display user information according to connection type
-        if hasattr(st.session_state, 'user_name'):
-            # Database user
-            st.markdown(f"**Logged in as:** {st.session_state.user_name}")
-            st.markdown(f"**Email:** {st.session_state.username}")
-            st.markdown(f"**Role:** {st.session_state.user_role}")
-        else:
-            # Hardcoded admin
-            st.markdown(f"**Logged in as:** {st.session_state.username}")
-            st.markdown(f"**Role:** Administrator")
-        
-        st.markdown("---")
-        
-        if st.button("🚪 Logout"):
-            # Clean all session variables
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
+    show_sidebar()
     # Main content of home page
     st.title("🏠 Dashboard - Fixtop Agent Manager")
     

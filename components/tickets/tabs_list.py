@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from services.data_loader import load_tickets
+from services.tickets.data_loader import load_tickets
 from services.cache_utils import clear_cache
 
 def display():

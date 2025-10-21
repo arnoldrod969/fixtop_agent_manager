@@ -81,7 +81,7 @@ class PermissionManager:
                 'can_view': True,
                 'can_add': False,       # Manager peut seulement voir et consulter les stats
                 'can_edit': False,
-                'can_delete': False,
+                'can_delete': True,
                 'can_view_stats': True,
                 'can_view_all': True
             },

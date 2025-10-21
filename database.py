@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "fixtop_agent.db"):
+    def __init__(self, db_path: str = "fixtop_agent_copy.db"):
         """Initialise le gestionnaire de base de données"""
         self.db_path = db_path
         self.ensure_connection()
@@ -13,7 +13,7 @@ class DatabaseManager:
     def ensure_connection(self):
         """Vérifie que la base de données existe et est accessible"""
         if not os.path.exists(self.db_path):
-            raise FileNotFoundError(f"Base de données non trouvée : {self.db_path}")
+            raise FileNotFoundError(f"Database file not found: {self.db_path}")
     
     def get_connection(self) -> sqlite3.Connection:
         """Retourne une connexion à la base de données"""
@@ -246,7 +246,7 @@ class DatabaseManager:
                 """, (user_id,))
                 
                 if cursor.rowcount == 0:
-                    return False, "Utilisateur non trouvé"
+                    return False, "User not found"
                 
                 conn.commit()
                 return True, "User disabled successfully"
@@ -300,7 +300,6 @@ class DatabaseManager:
                     JOIN team_member tm ON t.id = tm.team_id 
                     WHERE t.is_active = 1 AND tm.is_active = 1
                 ) t ON p.created_by = t.user_id
-                WHERE p.is_active = 1
                 ORDER BY p.created_at DESC
             """)
             return [dict(row) for row in cursor.fetchall()]
@@ -315,7 +314,7 @@ class DatabaseManager:
                 FROM problems p
                 LEFT JOIN user u1 ON p.created_by = u1.id
                 LEFT JOIN user u2 ON p.updated_by = u2.id
-                WHERE p.id = ? AND p.is_active = 1
+                WHERE p.id = ?
             """, (problem_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
@@ -346,10 +345,12 @@ class DatabaseManager:
             return False, f"Error creating problem: {str(e)}", None
     
     def update_problem(self, problem_id: int, customer_name: str = None, 
-                      customer_phone: str = None, problem_desc: str = None, 
+                      customer_phone: str = None, problem_desc: str = None,
+                      is_paid: int = None, amount: float = None, 
+                      craft_ids: str = None, speciality_ids: str = None,
                       updated_by: int = None) -> Tuple[bool, str]:
         """
-        Met à jour un ticket/problème
+        Met à jour un ticket/problème avec tous les champs disponibles
         Retourne: (succès, message)
         """
         try:
@@ -365,6 +366,18 @@ class DatabaseManager:
             if problem_desc is not None:
                 updates.append("problem_desc = ?")
                 params.append(problem_desc)
+            if is_paid is not None:
+                updates.append("is_paid = ?")
+                params.append(is_paid)
+            if amount is not None:
+                updates.append("amount = ?")
+                params.append(amount)
+            if craft_ids is not None:
+                updates.append("craft_ids = ?")
+                params.append(craft_ids)
+            if speciality_ids is not None:
+                updates.append("speciality_ids = ?")
+                params.append(speciality_ids)
             if updated_by is not None:
                 updates.append("updated_by = ?")
                 params.append(updated_by)
@@ -373,7 +386,7 @@ class DatabaseManager:
             updates.append("updated_at = datetime('now')")
             params.append(problem_id)
             
-            if not updates:
+            if len(updates) == 1:  # Seulement updated_at
                 return False, "No changes specified"
             
             query = f"UPDATE problems SET {', '.join(updates)} WHERE id = ?"
@@ -392,14 +405,13 @@ class DatabaseManager:
     
     def delete_problem(self, problem_id: int) -> Tuple[bool, str]:
         """
-        Supprime un ticket/problème (soft delete - marque comme inactif)
+        Supprime un ticket/problème (hard delete - suppression physique)
         Retourne: (succès, message)
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.execute("""
-                    UPDATE problems 
-                    SET is_active = 0, updated_at = datetime('now')
+                    DELETE FROM problems 
                     WHERE id = ?
                 """, (problem_id,))
                 
@@ -407,10 +419,61 @@ class DatabaseManager:
                     return False, "Problem not found"
                 
                 conn.commit()
-                return True, "Problem deleted successfully"
+                return True, "Problem permanently deleted"
                 
         except Exception as e:
             return False, f"Error deleting problem: {str(e)}"
+    
+    def can_delete_ticket(self, current_user_id: int, ticket_created_by: int) -> Tuple[bool, str]:
+        """
+        Vérifie si l'utilisateur peut supprimer un ticket selon les règles :
+        - Agent : seulement ses propres tickets
+        - Manager : tickets créés par les membres de son équipe
+        - Admin : tous les tickets
+        
+        Args:
+            current_user_id: ID de l'utilisateur connecté
+            ticket_created_by: ID de l'utilisateur qui a créé le ticket
+            
+        Returns:
+            Tuple[bool, str]: (peut_supprimer, raison)
+        """
+        try:
+            # 1. Récupérer le rôle de l'utilisateur connecté
+            user_roles = self.get_user_roles(current_user_id)
+            user_role_names = [role['name'] for role in user_roles]
+            
+            # 2. Admin peut tout supprimer
+            if 'admin' in user_role_names:
+                return True, "Admin privileges"
+            
+            # 3. Agent peut seulement supprimer ses propres tickets
+            if 'agent' in user_role_names:
+                if current_user_id == ticket_created_by:
+                    return True, "Own ticket"
+                else:
+                    return False, "You can only delete tickets you created"
+            
+            # 4. Manager peut supprimer les tickets de son équipe
+            if 'manager' in user_role_names:
+                # Récupérer l'équipe du manager
+                manager_team = self.get_manager_current_team(current_user_id)
+                if manager_team:
+                    # Récupérer les membres de l'équipe
+                    team_members = self.get_team_members(manager_team['id'])
+                    team_member_ids = [member['user_id'] for member in team_members]
+                    
+                    if ticket_created_by in team_member_ids:
+                        return True, "Team member ticket"
+                    else:
+                        return False, "You can only delete tickets created by your team members"
+                else:
+                    return False, "You are not assigned to any team"
+            
+            return False, "Insufficient permissions"
+            
+        except Exception as e:
+            return False, f"Error checking permissions: {str(e)}"
     
     def get_problem_stats(self) -> Dict:
         """Récupère les statistiques des tickets/problèmes"""
@@ -627,7 +690,7 @@ class DatabaseManager:
                         SELECT id FROM team WHERE name = ? AND id != ? AND is_active = 1
                     """, (name, team_id))
                     if cursor.fetchone():
-                        return False, "Une équipe avec ce nom existe déjà"
+                        return False, "A team with this name already exists"
                 
                 updates.append("name = ?")
                 params.append(name)
@@ -647,7 +710,7 @@ class DatabaseManager:
                     manager = cursor.fetchone()
                     
                     if not manager:
-                        return False, "Manager non trouvé ou inactif"
+                        return False, "Invalid manager ID or manager is not active"
                     
                     # Vérifier que ce manager ne gère pas déjà une autre équipe
                     cursor = conn.execute("""
@@ -657,7 +720,7 @@ class DatabaseManager:
                     existing_team = cursor.fetchone()
                     
                     if existing_team:
-                        return False, f"Ce manager gère déjà l'équipe '{existing_team[1]}'"
+                        return False, f"This manager is already assigned to team '{existing_team[1]}'"
                 
                 updates.append("manager_id = ?")
                 params.append(manager_id)
@@ -671,7 +734,7 @@ class DatabaseManager:
             params.append(team_id)
             
             if not updates:
-                return False, "Aucune modification spécifiée"
+                return False, "No changes specified"
             
             query = f"UPDATE team SET {', '.join(updates)} WHERE id = ? AND is_active = 1"
             
@@ -679,13 +742,13 @@ class DatabaseManager:
                 cursor = conn.execute(query, params)
                 
                 if cursor.rowcount == 0:
-                    return False, "Équipe non trouvée"
+                    return False, "Team not found"
                 
                 conn.commit()
-                return True, "Équipe mise à jour avec succès"
+                return True, f"Team '{name}' updated successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la mise à jour de l'équipe: {str(e)}"
+            return False, f"Error updating team: {str(e)}"
 
     def delete_team(self, team_id: int, updated_by: int = None) -> Tuple[bool, str]:
         """
@@ -716,10 +779,10 @@ class DatabaseManager:
                 """, (team_id,))
                 
                 conn.commit()
-                return True, f"Équipe '{team['name']}' supprimée définitivement avec succès"
+                return True, f"Team '{team[0]}' deleted permanently successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la suppression de l'équipe: {str(e)}"
+            return False, f"Error deleting team: {str(e)}"
 
     def get_team_stats(self) -> Dict:
         """Récupère les statistiques des équipes"""
@@ -802,7 +865,7 @@ class DatabaseManager:
                 """, (team_id,))
                 team = cursor.fetchone()
                 if not team:
-                    return False, "Équipe non trouvée"
+                    return False, "Team not found"
                 
                 # Vérifier si l'utilisateur existe
                 cursor = conn.execute("""
@@ -818,7 +881,7 @@ class DatabaseManager:
                     WHERE team_id = ? AND member_id = ? AND is_active = 1
                 """, (team_id, user_id))
                 if cursor.fetchone():
-                    return False, f"L'utilisateur {user['name']} est déjà membre de l'équipe {team['name']}"
+                    return False, f"User {user['name']} is already a member of team {team['name']}"
                 
                 # Ajouter le membre
                 cursor = conn.execute("""
@@ -827,10 +890,10 @@ class DatabaseManager:
                 """, (team_id, user_id, created_by, created_by))
                 
                 conn.commit()
-                return True, f"Utilisateur {user['name']} ajouté à l'équipe {team['name']} avec succès"
+                return True, f"User {user['name']} added to team {team['name']} successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de l'ajout du membre: {str(e)}"
+            return False, f"Error adding team member: {str(e)}"
 
     def remove_team_member(self, team_id: int, user_id: int, updated_by: int = None) -> Tuple[bool, str]:
         """
@@ -859,10 +922,10 @@ class DatabaseManager:
                 """, (team_id, user_id))
                 
                 conn.commit()
-                return True, f"Utilisateur {member['user_name']} retiré de l'équipe {member['team_name']} avec succès"
+                return True, f"User {member['user_name']} removed from team {member['team_name']} successfully"
                 
         except Exception as e:
-            return False, f"Erreur lors de la suppression du membre: {str(e)}"
+            return False, f"Error removing team member: {str(e)}"
 
     def get_user_teams(self, user_id: int) -> List[Dict]:
         """Récupère toutes les équipes dont un utilisateur est membre"""
@@ -992,7 +1055,7 @@ class DatabaseManager:
         # Vérifier la disponibilité du manager
         if not self.is_manager_available(manager_id, exclude_team_id):
             current_team = self.get_manager_current_team(manager_id)
-            return False, f"Ce manager gère déjà l'équipe '{current_team['name']}' (Code: {current_team['code']})"
+            return False, f"Manager '{manager_id}' is already managing team '{current_team['name']}' (Code: {current_team['code']})"
             
             # Vérifier la disponibilité des membres si fournis
             if member_ids:
@@ -1000,9 +1063,9 @@ class DatabaseManager:
                     if not self.is_agent_available(member_id, exclude_team_id):
                         current_team = self.get_agent_current_team(member_id)
                         user_info = self.get_user_by_id(member_id)
-                        return False, f"L'agent '{user_info['name']}' appartient déjà à l'équipe '{current_team['name']}' (Code: {current_team['code']})"
+                        return False, f"Agent '{user_info['name']}' is already a member of team '{current_team['name']}' (Code: {current_team['code']})"
             
-            return True, "Toutes les contraintes sont respectées"
+            return True, "All team constraints are met"
 
     # ==================== MÉTHODES DE SUPPRESSION CONDITIONNELLE ====================
 
@@ -1171,10 +1234,10 @@ class DatabaseManager:
                         """, (created_by, user_id, role_id))
                 
                 conn.commit()
-                return True, f"Rôles assignés avec succès à l'utilisateur"
+                return True, f"Roles assigned successfully to user"
                 
         except Exception as e:
-            return False, f"Erreur lors de l'assignation des rôles: {str(e)}"
+            return False, f"Error assigning roles: {str(e)}"
 
     def get_user_roles(self, user_id: int) -> List[Dict]:
         """Récupère tous les rôles actifs d'un utilisateur depuis la table user_role"""
@@ -1199,7 +1262,7 @@ class DatabaseManager:
                 return roles
                 
         except Exception as e:
-            print(f"Erreur lors de la récupération des rôles utilisateur: {str(e)}")
+            print(f"Error fetching user roles: {str(e)}")
             return []
 
     def update_user_roles(self, user_id: int, new_role_ids: list, updated_by: int) -> Tuple[bool, str]:
@@ -1241,7 +1304,7 @@ class DatabaseManager:
                 return True, f"Rôles mis à jour avec succès"
                 
         except Exception as e:
-            return False, f"Erreur lors de la mise à jour des rôles: {str(e)}"
+            return False, f"Error updating user roles: {str(e)}"
 
     # ==================== STATISTIQUES POUR LE TABLEAU DE BORD ====================
     

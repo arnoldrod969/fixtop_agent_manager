@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
-from services.data_loader import load_tickets, load_domains, load_teams, load_specialties_by_domain, load_agents
-from services.export_utils import export_to_csv, export_to_pdf, export_to_excel
+from datetime import datetime
+from services.tickets.data_loader import load_tickets, load_domains, load_teams, load_specialties_by_domain, load_agents
+from services.tickets.export_utils import export_to_csv, export_to_pdf, export_to_excel
 from services.cache_utils import clear_cache
 from services.debug_logger import log_column_check, log_data_info
 

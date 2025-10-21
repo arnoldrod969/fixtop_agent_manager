@@ -5,7 +5,10 @@ services:
       - "7000:7000"  # Mappe le port hôte 7000 vers le conteneur
     volumes:
       - .:/app  # Monte le code source pour hot-reload en dev (optionnel, retirez en prod)
+      - ./ssl-certs:/etc/letsencrypt  # Persistance des certificats SSL
     environment:
       - STREAMLIT_SERVER_PORT=7000
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - DOMAIN_NAME=${DOMAIN_NAME}       # Nom de domaine pour Let's Encrypt
+      - EMAIL=${EMAIL}                   # Email pour Let's Encrypt
     restart: unless-stopped  # Redémarre automatiquement si crash
