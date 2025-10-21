@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "fixtop_agent_copy.db"):
+    def __init__(self, db_path: str = "fixtop_agent.db"):
         """Initialise le gestionnaire de base de données"""
         self.db_path = db_path
         self.ensure_connection()
